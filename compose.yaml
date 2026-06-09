@@ -1,0 +1,9 @@
+services:
+  prometheus-battle:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: prometheus-battle:local
+    ports:
+      - "${PORT:-8080}:8080"
+    restart: unless-stopped

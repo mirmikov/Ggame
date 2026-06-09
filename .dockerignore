@@ -1,0 +1,9 @@
+.git
+.gitignore
+.DS_Store
+**/node_modules
+**/*.tsbuildinfo
+backend/server
+README.md
+ASSETS.md
+TODO.md

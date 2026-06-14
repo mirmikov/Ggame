@@ -1,3 +1,10 @@
+FROM node:20-alpine AS frontend-builder
+WORKDIR /src/frontend
+COPY frontend/package*.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+
 FROM golang:1.22-alpine AS backend-builder
 WORKDIR /src/backend
 COPY backend/ ./
@@ -8,7 +15,7 @@ RUN addgroup -S game \
     && adduser -S -G game game
 WORKDIR /app
 COPY --from=backend-builder /out/prometheus-battle /app/prometheus-battle
-COPY frontend/dist /app/public
+COPY --from=frontend-builder /src/frontend/dist /app/public
 USER game
 ENV PORT=8080 STATIC_DIR=/app/public
 EXPOSE 8080

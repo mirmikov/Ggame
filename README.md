@@ -46,7 +46,7 @@ docker compose down
 
 Другой внешний порт можно задать так: `PORT=3000 docker compose up --build`.
 
-Dockerfile не требует Node-образа: он использует готовую production-сборку из `frontend/dist` и vendored Go-зависимости. После изменений frontend обновите её командой `cd frontend && npm run build`.
+Dockerfile самостоятельно собирает frontend через Node.js и backend из vendored Go-зависимостей.
 
 ### Локальная разработка
 
@@ -71,6 +71,51 @@ npm run dev
 Для проверки multiplayer откройте приложение в двух вкладках: создайте комнату в первой, войдите по ID во второй, выберите разные команды и запустите бой.
 
 Для одиночной проверки выберите команду в лобби, нажмите `+ ДОБАВИТЬ TEST BOT`, затем запустите бой. BOT-7 автоматически отвечает на вопросы и усиливает свой юнит.
+
+## Автоматический деплой из main
+
+Workflow `.github/workflows/deploy-main.yml` после каждого push в `main`:
+
+1. запускает Go-тесты и собирает frontend и Docker-образ;
+2. подключается к production-серверу по SSH;
+3. обновляет серверную копию репозитория до `origin/main`;
+4. выполняет `docker compose up -d --build --remove-orphans`;
+5. проверяет `http://127.0.0.1:8080/api/health`.
+
+### Подготовка сервера
+
+На сервере должны быть установлены Git, Docker с Compose plugin и curl. Пользователь деплоя должен иметь доступ к Docker без `sudo`.
+
+Один раз клонируйте репозиторий на сервер и запустите приложение:
+
+```bash
+git clone https://github.com/mirmikov/Ggame.git /opt/ggame
+cd /opt/ggame
+git switch main
+docker compose up -d --build
+curl --fail http://127.0.0.1:8080/api/health
+```
+
+Если деплой выполняется не от `root`, выдайте пользователю права на каталог `/opt/ggame`.
+
+### GitHub Secrets
+
+В GitHub откройте `Settings -> Environments -> New environment`, создайте environment `production` и добавьте secrets:
+
+- `DEPLOY_HOST` — IP или домен сервера;
+- `DEPLOY_PORT` — SSH-порт, обычно `22`;
+- `DEPLOY_USER` — SSH-пользователь с доступом к Docker;
+- `DEPLOY_PATH` — путь к репозиторию на сервере, например `/opt/ggame`;
+- `DEPLOY_SSH_KEY` — приватный SSH-ключ пользователя деплоя;
+- `DEPLOY_KNOWN_HOSTS` — строка публичного SSH host key сервера.
+
+Получить `DEPLOY_KNOWN_HOSTS` с доверенной машины можно командой:
+
+```bash
+ssh-keyscan -H your-server.example.com
+```
+
+Публичную часть ключа деплоя добавьте на сервер в `~/.ssh/authorized_keys`. После настройки push или merge в `main` запустит деплой; вручную его можно запустить в GitHub Actions через workflow `Deploy main`.
 
 ## API
 

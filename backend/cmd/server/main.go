@@ -102,6 +102,20 @@ func (a *api) roomAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, 200, room)
+	case "qualifier-team":
+		var in struct {
+			PlayerID string `json:"playerId"`
+			TeamID   string `json:"teamId"`
+		}
+		if !decode(w, r, &in) {
+			return
+		}
+		room, err := a.rooms.SelectQualifierTeam(id, in.PlayerID, in.TeamID)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, 200, room)
 	case "bot":
 		var in struct {
 			PlayerID string `json:"playerId"`

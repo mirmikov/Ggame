@@ -1,95 +1,262 @@
 package rooms
 
 import (
+	"fmt"
 	"testing"
-	"time"
 
 	"ggame/backend/internal/models"
 )
 
-func TestBotJoinsAndAnswers(t *testing.T) {
-	manager := NewManager()
-	room, host, err := manager.Create(CreateInput{
-		ServerName: "Bot test",
-		MaxPlayers: 2,
-		GradeMode:  "9",
-		GameMode:   "final_pvp",
-		Nickname:   "Host",
-		Grade:      9,
+func qualifierInput() CreateInput {
+	return CreateInput{
+		ServerName: "Qualifier test", MaxPlayers: 16, GradeMode: "mixed", GameMode: models.ModeQualifier,
+		Nickname: "Organizer", Grade: 11,
 		Settings: models.Settings{
-			RoundDurationSeconds: 20,
-			TowerHP:              100,
-			TeamPlayerLimit:      1,
+			RoundDurationSeconds: 60, TowerHP: 200, TeamPlayerLimit: 2,
+			ZoneStepsToCenter: 4, ZonePushbackSteps: 2, ZoneHoldSeconds: 5,
 		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := manager.SelectTeam(room.UniqueServerID, host.ID, models.NexGen); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := manager.AddBot(room.UniqueServerID, host.ID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := manager.Start(room.UniqueServerID, host.ID); err != nil {
-		t.Fatal(err)
-	}
-
-	var bot *models.Player
-	for _, player := range room.Players {
-		if player.IsBot {
-			bot = player
-			break
-		}
-	}
-	if bot == nil || bot.Team != models.OmniSoft {
-		t.Fatalf("expected OmniSoft bot, got %#v", bot)
-	}
-
-	time.Sleep(3500 * time.Millisecond)
-	if bot.CorrectAnswers+bot.WrongAnswers == 0 {
-		t.Fatal("bot did not answer a question")
 	}
 }
 
-func TestPlayersReceiveDistinctLanes(t *testing.T) {
-	manager := NewManager()
-	room, host, err := manager.Create(CreateInput{
-		ServerName: "Lane test", MaxPlayers: 6, GradeMode: "9", GameMode: "final_pvp", Nickname: "Nex-1", Grade: 9,
-		Settings: models.Settings{RoundDurationSeconds: 20, TowerHP: 100, TeamPlayerLimit: 3},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	players := []*models.Player{host}
-	for _, nickname := range []string{"Nex-2", "Nex-3", "Omni-1", "Omni-2", "Omni-3"} {
-		_, player, joinErr := manager.Join(room.UniqueServerID, nickname, 9)
-		if joinErr != nil {
-			t.Fatal(joinErr)
+func joinEightTeams(t *testing.T, manager *Manager, roomID string) []*models.Player {
+	t.Helper()
+	players := make([]*models.Player, 0, models.QualifierTeamCount)
+	for i := 1; i <= models.QualifierTeamCount; i++ {
+		_, player, err := manager.Join(roomID, fmt.Sprintf("Player %d", i), 9+(i%3))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = manager.SelectQualifierTeam(roomID, player.ID, fmt.Sprintf("T%d", i)); err != nil {
+			t.Fatal(err)
 		}
 		players = append(players, player)
 	}
-	for i, player := range players {
-		team := models.NexGen
-		if i >= 3 {
-			team = models.OmniSoft
-		}
-		if _, err := manager.SelectTeam(room.UniqueServerID, player.ID, team); err != nil {
-			t.Fatal(err)
-		}
+	return players
+}
+
+func stopRoom(manager *Manager, roomID string) {
+	manager.mu.Lock()
+	if room := manager.rooms[roomID]; room != nil {
+		room.Status = "finished"
 	}
-	if _, err := manager.Start(room.UniqueServerID, host.ID); err != nil {
+	manager.mu.Unlock()
+}
+
+func TestQualifierCreatesExactlyEightTeams(t *testing.T) {
+	manager := NewManager()
+	room, _, err := manager.Create(qualifierInput())
+	if err != nil {
 		t.Fatal(err)
 	}
-	for _, team := range []models.TeamName{models.NexGen, models.OmniSoft} {
-		lanes := map[int]bool{}
-		for _, unit := range room.Units {
-			if unit.Team == team {
-				lanes[unit.Lane] = true
+	if len(room.QualifierTeams) != models.QualifierTeamCount {
+		t.Fatalf("expected 8 teams, got %d", len(room.QualifierTeams))
+	}
+	if room.MaxPlayers != models.QualifierTeamCount*room.Settings.TeamPlayerLimit {
+		t.Fatalf("max players must be calculated from team capacity, got %d", room.MaxPlayers)
+	}
+}
+
+func TestParticipantCanChooseQualifierTeam(t *testing.T) {
+	manager := NewManager()
+	room, _, err := manager.Create(qualifierInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, player, err := manager.Join(room.UniqueServerID, "Alice", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected, err := manager.SelectQualifierTeam(room.UniqueServerID, player.ID, "T3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selected.Players[player.ID].QualifierTeamID != "T3" {
+		t.Fatal("participant did not join the selected qualifier team")
+	}
+}
+
+func TestQualifierTeamCapacity(t *testing.T) {
+	manager := NewManager()
+	in := qualifierInput()
+	in.Settings.TeamPlayerLimit = 1
+	room, _, err := manager.Create(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, first, _ := manager.Join(room.UniqueServerID, "One", 10)
+	_, second, _ := manager.Join(room.UniqueServerID, "Two", 10)
+	if _, err = manager.SelectQualifierTeam(room.UniqueServerID, first.ID, "T1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = manager.SelectQualifierTeam(room.UniqueServerID, second.ID, "T1"); err == nil {
+		t.Fatal("expected full team error")
+	}
+}
+
+func TestQualifierRequiresAllEightTeams(t *testing.T) {
+	manager := NewManager()
+	room, organizer, err := manager.Create(qualifierInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, player, _ := manager.Join(room.UniqueServerID, "Only one", 10)
+	_, _ = manager.SelectQualifierTeam(room.UniqueServerID, player.ID, "T1")
+	if _, err = manager.Start(room.UniqueServerID, organizer.ID); err == nil {
+		t.Fatal("expected an error while some of the eight teams are empty")
+	}
+}
+
+func TestQualifierStartsWithEightPopulatedTeams(t *testing.T) {
+	manager := NewManager()
+	room, organizer, err := manager.Create(qualifierInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	joinEightTeams(t, manager, room.UniqueServerID)
+	started, err := manager.Start(room.UniqueServerID, organizer.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stopRoom(manager, room.UniqueServerID)
+	if started.QualifierSlots != 4 {
+		t.Fatalf("expected four final slots, got %d", started.QualifierSlots)
+	}
+	if len(started.Units) != 0 {
+		t.Fatal("qualifier arena must use team markers, not player battle units")
+	}
+}
+
+func TestZoneTakeoverPushesPreviousTeamBack(t *testing.T) {
+	manager := NewManager()
+	room, organizer, err := manager.Create(qualifierInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	players := joinEightTeams(t, manager, room.UniqueServerID)
+	if _, err = manager.Start(room.UniqueServerID, organizer.ID); err != nil {
+		t.Fatal(err)
+	}
+	defer stopRoom(manager, room.UniqueServerID)
+
+	manager.mu.Lock()
+	live := manager.rooms[room.UniqueServerID]
+	firstTeam := live.QualifierTeams["T1"]
+	secondTeam := live.QualifierTeams["T2"]
+	manager.advanceTeamToZoneLocked(live, firstTeam, live.Players[players[0].ID], 4)
+	manager.advanceTeamToZoneLocked(live, secondTeam, live.Players[players[1].ID], 4)
+	firstSteps := firstTeam.ZoneSteps
+	secondStatus := secondTeam.Status
+	holder := live.ZoneHolderTeamID
+	manager.mu.Unlock()
+
+	if holder != "T2" || secondStatus != "holding" {
+		t.Fatal("challenger team must become the new zone holder")
+	}
+	if firstSteps != 2 {
+		t.Fatalf("previous team must be pushed two steps back, got %d", firstSteps)
+	}
+}
+
+func TestQualifierFinishesWhenFourTeamsQualify(t *testing.T) {
+	manager := NewManager()
+	room, organizer, err := manager.Create(qualifierInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	joinEightTeams(t, manager, room.UniqueServerID)
+	if _, err = manager.Start(room.UniqueServerID, organizer.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	manager.mu.Lock()
+	live := manager.rooms[room.UniqueServerID]
+	for i := 1; i <= 4; i++ {
+		manager.qualifyTeamLocked(live, live.QualifierTeams[fmt.Sprintf("T%d", i)])
+	}
+	manager.tickQualifierLocked(live)
+	status := live.Status
+	qualified := append([]string(nil), live.QualifiedTeamIDs...)
+	manager.mu.Unlock()
+
+	if status != "finished" {
+		t.Fatalf("qualifier must finish after four teams qualify, got %s", status)
+	}
+	if len(qualified) != 4 {
+		t.Fatalf("expected four qualified teams, got %#v", qualified)
+	}
+}
+
+func TestCodeTaskMovesWholeQualifierTeam(t *testing.T) {
+	manager := NewManager()
+	room, organizer, err := manager.Create(qualifierInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	players := joinEightTeams(t, manager, room.UniqueServerID)
+	_, teammate, err := manager.Join(room.UniqueServerID, "Teammate", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = manager.SelectQualifierTeam(room.UniqueServerID, teammate.ID, "T1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = manager.Start(room.UniqueServerID, organizer.ID); err != nil {
+		t.Fatal(err)
+	}
+	defer stopRoom(manager, room.UniqueServerID)
+	correct, current, err := manager.SubmitTask(room.UniqueServerID, players[0].ID, "py-2", "s == s[::-1]")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !correct {
+		t.Fatal("expected accepted code answer")
+	}
+	team := current.QualifierTeams["T1"]
+	if team.ZoneSteps != 2 || current.Players[teammate.ID].ZoneSteps != 2 {
+		t.Fatalf("team movement was not synchronized: team=%#v teammate=%#v", team, current.Players[teammate.ID])
+	}
+}
+
+func TestFinalRequiresBothSides(t *testing.T) {
+	manager := NewManager()
+	in := qualifierInput()
+	in.GameMode = models.ModeFinal
+	in.MaxPlayers = 4
+	room, organizer, err := manager.Create(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, first, _ := manager.Join(room.UniqueServerID, "Nex", 10)
+	_, second, _ := manager.Join(room.UniqueServerID, "Omni", 11)
+	if _, err = manager.SelectTeam(room.UniqueServerID, first.ID, models.NexGen); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = manager.Start(room.UniqueServerID, organizer.ID); err == nil {
+		t.Fatal("expected error while second side is empty")
+	}
+	if _, err = manager.SelectTeam(room.UniqueServerID, second.ID, models.OmniSoft); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = manager.Start(room.UniqueServerID, organizer.ID); err != nil {
+		t.Fatal(err)
+	}
+	defer stopRoom(manager, room.UniqueServerID)
+}
+
+func TestQuestionsAndTasksAreExpanded(t *testing.T) {
+	manager := NewManager()
+	for grade := 9; grade <= 11; grade++ {
+		items := manager.Questions(grade)
+		if len(items) < 12 {
+			t.Fatalf("expected at least 12 questions for grade %d, got %d", grade, len(items))
+		}
+		for _, q := range items {
+			if q.Explanation != "" {
+				t.Fatalf("explanation leaked for %s", q.ID)
 			}
 		}
-		if len(lanes) != 3 {
-			t.Fatalf("expected three distinct lanes for %s, got %#v", team, lanes)
-		}
+	}
+	if len(manager.Tasks()) < 18 {
+		t.Fatalf("expected at least 18 code tasks, got %d", len(manager.Tasks()))
 	}
 }

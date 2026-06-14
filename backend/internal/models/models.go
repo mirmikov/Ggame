@@ -9,27 +9,39 @@ const (
 	OmniSoft TeamName = "OmniSoft"
 )
 
+const (
+	RoleOrganizer   = "organizer"
+	RoleParticipant = "participant"
+	ModeQualifier   = "qualifier"
+	ModeFinal       = "final"
+)
+
 type Player struct {
-	ID             string   `json:"id"`
-	Nickname       string   `json:"nickname"`
-	Grade          int      `json:"grade"`
-	Team           TeamName `json:"team"`
-	Level          int      `json:"level"`
-	XP             int      `json:"xp"`
-	HP             int      `json:"hp"`
-	MaxHP          int      `json:"maxHp"`
-	Attack         int      `json:"attack"`
-	Defense        int      `json:"defense"`
-	Speed          float64  `json:"speed"`
-	Score          int      `json:"score"`
-	CorrectAnswers int      `json:"correctAnswers"`
-	WrongAnswers   int      `json:"wrongAnswers"`
-	WrongStreak    int      `json:"wrongStreak"`
-	LockedUntil    int64    `json:"lockedUntil"`
-	IsHost         bool     `json:"isHost"`
-	IsBot          bool     `json:"isBot"`
-	QuestionID     string   `json:"questionId"`
-	SolvedTasks    []string `json:"solvedTasks"`
+	ID              string   `json:"id"`
+	Nickname        string   `json:"nickname"`
+	Grade           int      `json:"grade"`
+	Role            string   `json:"role"`
+	Team            TeamName `json:"team"`
+	Level           int      `json:"level"`
+	XP              int      `json:"xp"`
+	HP              int      `json:"hp"`
+	MaxHP           int      `json:"maxHp"`
+	Attack          int      `json:"attack"`
+	Defense         int      `json:"defense"`
+	Speed           float64  `json:"speed"`
+	Score           int      `json:"score"`
+	CorrectAnswers  int      `json:"correctAnswers"`
+	WrongAnswers    int      `json:"wrongAnswers"`
+	WrongStreak     int      `json:"wrongStreak"`
+	LockedUntil     int64    `json:"lockedUntil"`
+	IsHost          bool     `json:"isHost"`
+	IsBot           bool     `json:"isBot"`
+	QuestionID      string   `json:"questionId"`
+	SolvedTasks     []string `json:"solvedTasks"`
+	LatestBuff      string   `json:"latestBuff,omitempty"`
+	QualifierStatus string   `json:"qualifierStatus,omitempty"`
+	ZoneSteps       int      `json:"zoneSteps,omitempty"`
+	CaptureProgress int      `json:"captureProgress,omitempty"`
 }
 
 type BattleUnit struct {
@@ -46,6 +58,7 @@ type BattleUnit struct {
 	Position      float64  `json:"position"`
 	Target        string   `json:"target"`
 	RespawnAt     int64    `json:"respawnAt,omitempty"`
+	IsBoss        bool     `json:"isBoss,omitempty"`
 }
 
 type Projectile struct {
@@ -71,24 +84,32 @@ type Settings struct {
 	RoundDurationSeconds int `json:"roundDurationSeconds"`
 	TowerHP              int `json:"towerHp"`
 	TeamPlayerLimit      int `json:"teamPlayerLimit"`
+	ZoneStepsToCenter    int `json:"zoneStepsToCenter"`
+	ZonePushbackSteps    int `json:"zonePushbackSteps"`
+	ZoneHoldSeconds      int `json:"zoneHoldSeconds"`
 }
 
 type Room struct {
-	UniqueServerID string                 `json:"uniqueServerId"`
-	ServerName     string                 `json:"serverName"`
-	MaxPlayers     int                    `json:"maxPlayers"`
-	GradeMode      string                 `json:"gradeMode"`
-	GameMode       string                 `json:"gameMode"`
-	Status         string                 `json:"status"`
-	Players        map[string]*Player     `json:"players"`
-	Teams          map[TeamName]*Team     `json:"teams"`
-	Units          map[string]*BattleUnit `json:"units"`
-	Projectiles    []Projectile           `json:"projectiles"`
-	CreatedAt      time.Time              `json:"createdAt"`
-	Settings       Settings               `json:"settings"`
-	EndsAt         int64                  `json:"endsAt,omitempty"`
-	Winner         TeamName               `json:"winner,omitempty"`
-	StoryMessage   string                 `json:"storyMessage,omitempty"`
+	UniqueServerID   string                 `json:"uniqueServerId"`
+	ServerName       string                 `json:"serverName"`
+	MaxPlayers       int                    `json:"maxPlayers"`
+	GradeMode        string                 `json:"gradeMode"`
+	GameMode         string                 `json:"gameMode"`
+	Status           string                 `json:"status"`
+	OrganizerID      string                 `json:"organizerId"`
+	Players          map[string]*Player     `json:"players"`
+	Teams            map[TeamName]*Team     `json:"teams"`
+	Units            map[string]*BattleUnit `json:"units"`
+	Projectiles      []Projectile           `json:"projectiles"`
+	CreatedAt        time.Time              `json:"createdAt"`
+	Settings         Settings               `json:"settings"`
+	EndsAt           int64                  `json:"endsAt,omitempty"`
+	Winner           TeamName               `json:"winner,omitempty"`
+	StoryMessage     string                 `json:"storyMessage,omitempty"`
+	LastEvent        string                 `json:"lastEvent,omitempty"`
+	ZoneHolderID     string                 `json:"zoneHolderId,omitempty"`
+	QualifierSlots   int                    `json:"qualifierSlots,omitempty"`
+	QualifiedTeamIDs []string               `json:"qualifiedTeamIds,omitempty"`
 }
 
 type Question struct {
@@ -104,11 +125,14 @@ type Question struct {
 }
 
 type TerminalTask struct {
-	ID             string `json:"id"`
-	Title          string `json:"title"`
-	Description    string `json:"description"`
-	ExpectedAnswer string `json:"-"`
-	Reward         int    `json:"reward"`
+	ID              string   `json:"id"`
+	Title           string   `json:"title"`
+	Description     string   `json:"description"`
+	Language        string   `json:"language"`
+	StarterCode     string   `json:"starterCode"`
+	AcceptedAnswers []string `json:"-"`
+	Reward          int      `json:"reward"`
+	Difficulty      int      `json:"difficulty"`
 }
 
 type Event struct {

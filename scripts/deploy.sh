@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-domain="${1:-}"
+domain="${1:-${SITE_ADDRESS:-}}"
 
 if [[ -n "$domain" ]]; then
   cat > .env <<EOF

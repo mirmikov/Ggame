@@ -1,4 +1,9 @@
-{$SITE_ADDRESS::80} {
+:80 {
+	encode zstd gzip
+	reverse_proxy prometheus-battle:8080
+}
+
+{$SITE_ADDRESS:localhost} {
 	encode zstd gzip
 	reverse_proxy prometheus-battle:8080
 }

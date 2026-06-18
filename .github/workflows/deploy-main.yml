@@ -54,4 +54,4 @@ jobs:
           SITE_ADDRESS: ${{ secrets.SITE_ADDRESS }}
         run: |
           ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
-            "cd '$DEPLOY_PATH' && SITE_ADDRESS='$SITE_ADDRESS' bash scripts/deploy.sh"
+            "cd '$DEPLOY_PATH' && git fetch --prune && git pull --ff-only && SITE_ADDRESS='$SITE_ADDRESS' bash scripts/deploy.sh"

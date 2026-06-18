@@ -16,7 +16,7 @@ fi
 git fetch --prune
 git pull --ff-only
 
-docker compose up -d --build
+docker compose up -d --build --force-recreate
 docker compose ps
 
 echo "Checking local health endpoint..."

@@ -248,6 +248,20 @@ func (m *Manager) Start(roomID, playerID string) (*models.Room, error) {
 		return nil, errors.New("нужен хотя бы один участник")
 	}
 
+	// Для отборочного режима подсчитываем команды, в которых есть участники
+	activeTeams := 0
+	for _, team := range room.QualifierTeams {
+		if qualifierTeamMemberCount(room, team.ID) > 0 {
+			activeTeams++
+		}
+	}
+	if room.GameMode == models.ModeQualifier {
+		if activeTeams < 2 {
+			m.mu.Unlock()
+			return nil, fmt.Errorf("для запуска нужно минимум 2 команды с участниками, сейчас только %d", activeTeams)
+		}
+	}
+
 	room.Units = map[string]*models.BattleUnit{}
 	room.Projectiles = []models.Projectile{}
 	room.Winner = ""
@@ -261,6 +275,7 @@ func (m *Manager) Start(roomID, playerID string) (*models.Room, error) {
 	}
 
 	if room.GameMode == models.ModeFinal {
+		// финальная логика без изменений
 		hasNex, hasOmni := false, false
 		teamLanes := map[models.TeamName]int{models.NexGen: 0, models.OmniSoft: 0}
 		for _, p := range participants {
@@ -282,36 +297,35 @@ func (m *Manager) Start(roomID, playerID string) (*models.Room, error) {
 		}
 		room.StoryMessage = "ФИНАЛ: две стороны усиливают бойцов теорией и кодом. Организатор транслирует арену."
 	} else {
-		missing := make([]string, 0)
-		for _, team := range sortedQualifierTeams(room) {
-			if qualifierTeamMemberCount(room, team.ID) == 0 {
-				missing = append(missing, team.Name)
-			}
+		// Отборочный режим: настройка команд
+		room.QualifierSlots = 4
+		if activeTeams < 4 {
+			room.QualifierSlots = activeTeams // все проходят
 		}
-		if len(missing) > 0 {
-			m.mu.Unlock()
-			return nil, fmt.Errorf("для запуска нужен хотя бы один участник во всех 8 командах; пустые: %s", strings.Join(missing, ", "))
-		}
-		room.QualifierSlots = models.QualifierTeamCount / 2
 		for _, team := range room.QualifierTeams {
 			team.Score = 0
 			team.ZoneSteps = 0
 			team.CaptureProgress = 0
-			team.Status = "active"
+			// Команды без участников помечаем как eliminated, чтобы не участвовали
+			if qualifierTeamMemberCount(room, team.ID) == 0 {
+				team.Status = "eliminated"
+			} else {
+				team.Status = "active"
+			}
 		}
 		for _, p := range participants {
-			if room.QualifierTeams[p.QualifierTeamID] == nil {
+			if room.QualifierTeams[p.QualifierTeamID] == nil || room.QualifierTeams[p.QualifierTeamID].Status == "eliminated" {
 				m.mu.Unlock()
-				return nil, fmt.Errorf("участник %s не выбрал команду", p.Nickname)
+				return nil, fmt.Errorf("участник %s не выбрал активную команду", p.Nickname)
 			}
 			p.Team = ""
 			p.QuestionID = m.nextQuestionID(p.Grade, "")
 			p.QualifierStatus = "active"
 			p.ZoneSteps = 0
 			p.CaptureProgress = 0
-			p.LatestBuff = "СТАРТ // ВНЕШНЕЕ КОЛЬЦО"
+			p.LatestBuff = "СТАРТ // ОТБОРОЧНЫЙ ТУР"
 		}
-		room.StoryMessage = "ОТБОРОЧНЫЙ ТУР: 8 команд движутся к центральной зоне. В финал проходят 4 сильнейшие команды."
+		room.StoryMessage = "ОТБОРОЧНЫЙ ТУР: команды движутся к центральной зоне. В финал проходят лучшие."
 	}
 
 	room.Status = "running"
@@ -674,16 +688,16 @@ func (m *Manager) qualifyTeamLocked(room *models.Room, team *models.QualifierTea
 	m.syncQualifierTeamMembersLocked(room, team, "ФИНАЛ // КВАЛИФИКАЦИЯ ПОЛУЧЕНА")
 	room.LastEvent = fmt.Sprintf("Команда %s удержала зону и проходит в финал", team.Name)
 }
-
 func (m *Manager) finishQualifierLocked(room *models.Room, byTimeout bool) {
 	if byTimeout && len(room.QualifiedTeamIDs) < room.QualifierSlots {
 		qualified := map[string]bool{}
 		for _, id := range room.QualifiedTeamIDs {
 			qualified[id] = true
 		}
+		// Собираем только команды с участниками и ещё не квалифицированные
 		candidates := make([]*models.QualifierTeam, 0)
 		for _, team := range sortedQualifierTeams(room) {
-			if !qualified[team.ID] {
+			if !qualified[team.ID] && qualifierTeamMemberCount(room, team.ID) > 0 {
 				candidates = append(candidates, team)
 			}
 		}
@@ -718,6 +732,7 @@ func (m *Manager) finishQualifierLocked(room *models.Room, byTimeout bool) {
 			m.syncQualifierTeamMembersLocked(room, team, "ФИНАЛ // КОМАНДА ПРОШЛА")
 		}
 	}
+	// Остальные команды, которые не прошли, помечаем как eliminated
 	for _, team := range room.QualifierTeams {
 		if !qualified[team.ID] {
 			team.Status = "eliminated"
@@ -727,12 +742,12 @@ func (m *Manager) finishQualifierLocked(room *models.Room, byTimeout bool) {
 	room.ZoneHolderID = ""
 	room.ZoneHolderTeamID = ""
 	room.Status = "finished"
-	room.Winner = models.NexGen
+	room.Winner = models.NexGen // победитель в отборе не определяется
 	room.StoryMessage = fmt.Sprintf("В финал проходят %d команды: %s.", room.QualifierSlots, strings.Join(names, ", "))
 	if byTimeout {
 		room.LastEvent = "QUALIFIER // TIMEOUT RANKING"
 	} else {
-		room.LastEvent = "QUALIFIER // FOUR TEAMS REMAIN"
+		room.LastEvent = "QUALIFIER // FOUR TEAMS REMAIN" // можно оставить для совместимости
 	}
 }
 

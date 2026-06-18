@@ -16,3 +16,153 @@
 .team-roster-board{grid-column:1/-1;max-height:none}.organizer-team-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.organizer-team-card{--team-color:hsl(var(--team-hue) 85% 62%);padding:13px;border:1px solid color-mix(in srgb,var(--team-color) 55%,#26364c);background:linear-gradient(145deg,color-mix(in srgb,var(--team-color) 8%,#09101a),#070b12)}.organizer-team-card>div{display:flex;justify-content:space-between;gap:8px;align-items:center}.organizer-team-card b{color:var(--team-color);font-size:11px}.organizer-team-card span{font-size:9px;color:#d7e5f3}.organizer-team-card ul{list-style:none;padding:0;margin:10px 0 0;display:grid;gap:5px}.organizer-team-card li{font-size:8px;color:#9daec2;padding-top:5px;border-top:1px solid #273548}.organizer-team-card small{display:block;margin-top:10px;color:#66778d;font-size:8px}.participant-lobby{max-width:1080px}.qualifier-team-select{margin:24px 0;text-align:left}.qualifier-team-select h3{text-align:center;font-size:11px;letter-spacing:2px;color:#9cafc4}.qualifier-team-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.qualifier-team-choice{--team-color:hsl(var(--team-hue) 85% 62%);min-height:118px;text-align:left;display:flex;flex-direction:column;gap:7px;border-color:color-mix(in srgb,var(--team-color) 40%,#33445e)}.qualifier-team-choice b{color:var(--team-color)}.qualifier-team-choice span{font-size:8px;color:#b9c8d8}.qualifier-team-choice small{font-size:8px;line-height:1.45;color:#718299}.qualifier-team-choice.selected{border-color:var(--team-color);background:color-mix(in srgb,var(--team-color) 13%,#08101a);box-shadow:0 0 22px color-mix(in srgb,var(--team-color) 22%,transparent)}.selected-team-note{margin-top:12px;padding:12px;border:1px solid #294258;background:#09131f;text-align:center;color:#a8bbce;font-size:9px}.participant-stats{grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}
 @media(max-width:900px){.organizer-team-grid,.qualifier-team-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:600px){.organizer-team-grid,.qualifier-team-grid{grid-template-columns:1fr}.qualifier-team-choice{min-height:96px}}
+
+
+
+/* турнирная таблица */
+.live-leaderboard {
+  padding: 18px;
+  margin-top: 16px;
+}
+
+.leaderboard-header,
+.leaderboard-row {
+  display: grid;
+  grid-template-columns: 50px 2fr 1fr 1fr 1fr 1fr;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 6px;
+  border-bottom: 1px solid #2a3a4e;
+  font-size: 11px;
+}
+
+.leaderboard-header {
+  color: #8a9bb5;
+  font-weight: 600;
+  border-bottom: 2px solid #3a4a5e;
+}
+
+.leaderboard-row:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.leaderboard-row.leader {
+  background: linear-gradient(90deg, rgba(255, 215, 0, 0.08) 0%, transparent 100%);
+  font-weight: 600;
+}
+
+.leaderboard-row.qualified {
+  color: #70ff9d;
+}
+
+.leaderboard-row.eliminated {
+  opacity: 0.5;
+}
+
+.rank {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.arrow {
+  font-size: 12px;
+}
+
+.arrow.up {
+  color: #4cff8d;
+}
+
+.arrow.down {
+  color: #ff4c4c;
+}
+
+.arrow.new {
+  color: #4c9fff;
+}
+
+/* Компактная таблица участника */
+.compact-leaderboard {
+  margin-top: 16px;
+  padding: 12px;
+  background: #0b101c;
+  border: 1px solid #2a3a4e;
+  border-radius: 4px;
+}
+
+.compact-leaderboard h4 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: #8a9bb5;
+}
+
+.compact-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.compact-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  padding: 4px 6px;
+  border-radius: 2px;
+}
+
+.compact-row.leader {
+  background: rgba(255, 215, 0, 0.06);
+}
+
+.compact-row.my-team {
+  border-left: 2px solid currentColor;
+  padding-left: 8px;
+  font-weight: 600;
+}
+
+.compact-rank {
+  width: 24px;
+  text-align: center;
+  font-weight: 600;
+}
+
+.compact-name {
+  flex: 1;
+}
+
+.compact-capture {
+  color: #8a9bb5;
+}
+
+
+/* сортировка*/
+.leaderboard-top,
+.compact-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.sort-selector button {
+  padding: 4px 10px;
+  font-size: 10px;
+  background: #151b27;
+  border: 1px solid #2b3749;
+  color: #7e899b;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.sort-selector button.active {
+  border-color: #4c9fff;
+  color: #4c9fff;
+  background: #0d1b2a;
+  box-shadow: 0 0 8px #4c9fff22;
+}
+
+.sort-selector.small button {
+  padding: 2px 8px;
+  font-size: 9px;
+}

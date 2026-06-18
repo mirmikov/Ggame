@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { api, roomSocket } from "./api/client";
 import type {
@@ -852,11 +852,15 @@ function QualifierArena({ room }: { room: Room }) {
   const participants = Object.values(room.players).filter(
     (p) => p.role === "participant" && !p.isBot,
   );
-  const teams = Object.values(room.qualifierTeams || {}).sort(
+  const allTeams = Object.values(room.qualifierTeams || {}).sort(
     (a, b) => a.lane - b.lane,
   );
   const membersFor = (teamId: string) =>
     participants.filter((player) => player.qualifierTeamId === teamId);
+  const activeTeams = allTeams.filter(
+    (team) =>
+      membersFor(team.id).length > 0 || team.status !== "waiting",
+  );
   const holder = room.zoneHolderTeamId
     ? room.qualifierTeams?.[room.zoneHolderTeamId]
     : undefined;
@@ -868,20 +872,23 @@ function QualifierArena({ room }: { room: Room }) {
   const holdPct = holder
     ? Math.min(
         100,
-        (holder.captureProgress / Math.max(1, room.settings.zoneHoldSeconds)) *
+        (holder.captureProgress /
+          Math.max(1, room.settings.zoneHoldSeconds)) *
           100,
       )
     : 0;
+
   return (
     <section className="game-screen organizer-arena">
+      {/* Баннер и верхняя часть без изменений */}
       <div className="projector-banner">
-        <b>ОТБОРОЧНЫЙ ТУР // 8 КОМАНД // ЗАХВАТ ЗОНЫ</b>
+        <b>ОТБОРОЧНЫЙ ТУР // {activeTeams.length} КОМАНД // ЗАХВАТ ЗОНЫ</b>
         <span>{room.uniqueServerId}</span>
       </div>
       <div className="zone-top">
         <div className="zone-summary">
           <small>В ФИНАЛЕ</small>
-          <b>{qualified.size} / 4</b>
+          <b>{qualified.size} / {room.qualifierSlots || 4}</b>
         </div>
         <div className="timer">
           {formatTime(remaining)}
@@ -907,10 +914,16 @@ function QualifierArena({ room }: { room: Room }) {
           viewBox="0 0 100 100"
           preserveAspectRatio="none"
         >
-          {teams.map((team) => {
-            const point = radialPoint(team.lane, 0, teams.length);
+          {allTeams.map((team) => {
+            const point = radialPoint(team.lane, 0, allTeams.length);
             return (
-              <line key={team.id} x1={point.x} y1={point.y} x2="50" y2="50" />
+              <line
+                key={team.id}
+                x1={point.x}
+                y1={point.y}
+                x2="50"
+                y2="50"
+              />
             );
           })}
         </svg>
@@ -923,13 +936,14 @@ function QualifierArena({ room }: { room: Room }) {
             <em style={{ width: `${holdPct}%` }} />
           </i>
         </div>
-        {teams
+        {activeTeams
           .filter((team) => !qualified.has(team.id))
           .map((team) => {
             const progress =
-              (team.zoneSteps / Math.max(1, room.settings.zoneStepsToCenter)) *
+              (team.zoneSteps /
+                Math.max(1, room.settings.zoneStepsToCenter)) *
               100;
-            const point = radialPoint(team.lane, progress, teams.length);
+            const point = radialPoint(team.lane, progress, allTeams.length);
             const members = membersFor(team.id);
             return (
               <div
@@ -946,7 +960,8 @@ function QualifierArena({ room }: { room: Room }) {
                 <span>{team.name.slice(0, 2).toUpperCase()}</span>
                 <b>{team.name}</b>
                 <small>
-                  {team.zoneSteps}/{room.settings.zoneStepsToCenter} · {members.length} чел.
+                  {team.zoneSteps}/{room.settings.zoneStepsToCenter} ·{" "}
+                  {members.length} чел.
                 </small>
               </div>
             );
@@ -961,32 +976,14 @@ function QualifierArena({ room }: { room: Room }) {
           ))}
         </div>
       </div>
+
+      {/* Нижняя часть: заменяем старый live-roster на турнирную таблицу */}
       <div className="organizer-bottom">
         <div className="panel event-feed">
           <small>ПОСЛЕДНЕЕ СОБЫТИЕ</small>
           <strong>{room.lastEvent || "Синхронизация..."}</strong>
         </div>
-        <div className="panel live-roster">
-          <h3>ПОЛОЖЕНИЕ 8 КОМАНД</h3>
-          {[...teams]
-            .sort(
-              (a, b) =>
-                b.zoneSteps - a.zoneSteps ||
-                b.captureProgress - a.captureProgress ||
-                b.score - a.score,
-            )
-            .map((team) => (
-              <div key={team.id}>
-                <b>{team.name}</b>
-                <span>
-                  {qualifierStatusLabel(team.status)} // {membersFor(team.id).length} участников
-                </span>
-                <strong>
-                  {team.zoneSteps}/{room.settings.zoneStepsToCenter} · {team.score}
-                </strong>
-              </div>
-            ))}
-        </div>
+        <QualifierLeaderboard room={room} />
       </div>
     </section>
   );
@@ -1209,6 +1206,12 @@ function ParticipantConsole({
           />
           <Stat name="SCORE" value={player?.score} />
         </div>
+      )}
+       {room.gameMode === "qualifier" && (
+        <CompactLeaderboard
+          room={room}
+          playerTeamId={player?.qualifierTeamId}
+        />
       )}
       <div className="panel challenge-panel">
         {qualifierDone ? (
@@ -1486,5 +1489,265 @@ function Screen({
       </div>
       {children}
     </section>
+  );
+}
+
+
+
+
+type SortCriterion = "capture" | "score" | "correct";
+type SortOrder = "asc" | "desc";
+
+function QualifierLeaderboard({ room }: { room: Room }) {
+  const participants = Object.values(room.players).filter(
+    (p) => p.role === "participant" && !p.isBot,
+  );
+  const allTeams = Object.values(room.qualifierTeams || {});
+  const membersFor = (teamId: string) =>
+    participants.filter((p) => p.qualifierTeamId === teamId);
+
+  const activeTeams = allTeams.filter(
+    (team) =>
+      membersFor(team.id).length > 0 || team.status !== "waiting",
+  );
+
+  const teamCorrectAnswers = (teamId: string) =>
+    membersFor(teamId).reduce((sum, p) => sum + p.correctAnswers, 0);
+
+  const [sortBy, setSortBy] = useState<SortCriterion>("capture");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
+
+  const handleSortChange = (criterion: SortCriterion) => {
+    if (criterion === sortBy) {
+      setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortBy(criterion);
+      setSortOrder("desc"); // новый критерий – по умолчанию убывание
+    }
+  };
+
+  const sorted = useMemo(() => {
+    const teams = [...activeTeams];
+    const orderMul = sortOrder === "asc" ? 1 : -1;
+
+    teams.sort((a, b) => {
+      let cmp = 0;
+      switch (sortBy) {
+        case "capture":
+          cmp = (b.captureProgress ?? 0) - (a.captureProgress ?? 0);
+          if (cmp === 0) cmp = (b.zoneSteps ?? 0) - (a.zoneSteps ?? 0);
+          if (cmp === 0) cmp = (b.score ?? 0) - (a.score ?? 0);
+          if (cmp === 0) cmp = teamCorrectAnswers(b.id) - teamCorrectAnswers(a.id);
+          break;
+        case "score":
+          cmp = (b.score ?? 0) - (a.score ?? 0);
+          if (cmp === 0) cmp = (b.captureProgress ?? 0) - (a.captureProgress ?? 0);
+          if (cmp === 0) cmp = (b.zoneSteps ?? 0) - (a.zoneSteps ?? 0);
+          if (cmp === 0) cmp = teamCorrectAnswers(b.id) - teamCorrectAnswers(a.id);
+          break;
+        case "correct":
+          cmp = teamCorrectAnswers(b.id) - teamCorrectAnswers(a.id);
+          if (cmp === 0) cmp = (b.captureProgress ?? 0) - (a.captureProgress ?? 0);
+          if (cmp === 0) cmp = (b.zoneSteps ?? 0) - (a.zoneSteps ?? 0);
+          if (cmp === 0) cmp = (b.score ?? 0) - (a.score ?? 0);
+          break;
+      }
+      return cmp * orderMul;
+    });
+    return teams;
+  }, [activeTeams, sortBy, sortOrder, room]);
+
+  // Храним предыдущий порядок ID команд для определения движения
+  const prevOrderRef = useRef<string[]>([]);
+  const [movements, setMovements] = useState<Record<string, "up" | "down" | "same" | "new">>({});
+
+  useEffect(() => {
+    const newOrder = sorted.map((t) => t.id);
+    const prev = prevOrderRef.current;
+    const moves: Record<string, "up" | "down" | "same" | "new"> = {};
+
+    if (prev.length === 0) {
+      newOrder.forEach((id) => (moves[id] = "new"));
+    } else {
+      newOrder.forEach((id, idx) => {
+        const oldIdx = prev.indexOf(id);
+        if (oldIdx === -1) {
+          moves[id] = "new";
+        } else if (oldIdx > idx) {
+          moves[id] = "up";
+        } else if (oldIdx < idx) {
+          moves[id] = "down";
+        } else {
+          moves[id] = "same";
+        }
+      });
+    }
+
+    setMovements(moves);
+    prevOrderRef.current = newOrder;
+  }, [sorted]);
+
+  return (
+    <div className="panel leaderboard live-leaderboard">
+      <div className="leaderboard-top">
+        <h3>🏆 ТУРНИРНАЯ ТАБЛИЦА</h3>
+        <div className="sort-selector">
+          <button
+            className={sortBy === "capture" ? "active" : ""}
+            onClick={() => handleSortChange("capture")}
+          >
+            Захват {sortBy === "capture" && (sortOrder === "asc" ? "▲" : "▼")}
+          </button>
+          <button
+            className={sortBy === "score" ? "active" : ""}
+            onClick={() => handleSortChange("score")}
+          >
+            Очки {sortBy === "score" && (sortOrder === "asc" ? "▲" : "▼")}
+          </button>
+          <button
+            className={sortBy === "correct" ? "active" : ""}
+            onClick={() => handleSortChange("correct")}
+          >
+            Ответы {sortBy === "correct" && (sortOrder === "asc" ? "▲" : "▼")}
+          </button>
+        </div>
+      </div>
+      <div className="leaderboard-header">
+        <span>#</span>
+        <span>Команда</span>
+        <span>Захват</span>
+        <span>Шаги</span>
+        <span>Очки</span>
+        <span>Верно</span>
+      </div>
+      {sorted.map((team, idx) => {
+        const members = membersFor(team.id);
+        const correctTotal = teamCorrectAnswers(team.id);
+        const move = movements[team.id] || "same";
+        const isLeader = idx === 0;
+
+        return (
+          <div
+            key={team.id}
+            className={`leaderboard-row ${isLeader ? "leader" : ""} ${team.status === "qualified" ? "qualified" : team.status === "eliminated" ? "eliminated" : ""}`}
+          >
+            <span className="rank">
+              {idx + 1}
+              {move === "up" && <span className="arrow up">▲</span>}
+              {move === "down" && <span className="arrow down">▼</span>}
+              {move === "new" && <span className="arrow new">●</span>}
+            </span>
+            <span className="team-name" style={{ color: `hsl(${team.hue}, 70%, 65%)` }}>
+              {team.name}
+            </span>
+            <span>{team.captureProgress}/{room.settings.zoneHoldSeconds}</span>
+            <span>{team.zoneSteps}/{room.settings.zoneStepsToCenter}</span>
+            <span>{team.score}</span>
+            <span>{correctTotal}</span>
+          </div>
+        );
+      })}
+      {sorted.length === 0 && <p className="waiting">Нет активных команд</p>}
+    </div>
+  );
+}
+
+
+function CompactLeaderboard({ room, playerTeamId }: { room: Room; playerTeamId?: string }) {
+  const participants = Object.values(room.players).filter(
+    (p) => p.role === "participant" && !p.isBot,
+  );
+  const allTeams = Object.values(room.qualifierTeams || {});
+  const membersFor = (teamId: string) =>
+    participants.filter((p) => p.qualifierTeamId === teamId);
+  const activeTeams = allTeams.filter(
+    (team) =>
+      membersFor(team.id).length > 0 || team.status !== "waiting",
+  );
+  const teamCorrectAnswers = (teamId: string) =>
+    membersFor(teamId).reduce((sum, p) => sum + p.correctAnswers, 0);
+
+  const [sortBy, setSortBy] = useState<SortCriterion>("capture");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
+
+  const handleSortChange = (criterion: SortCriterion) => {
+    if (criterion === sortBy) {
+      setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortBy(criterion);
+      setSortOrder("desc");
+    }
+  };
+
+  const sorted = useMemo(() => {
+    const teams = [...activeTeams];
+    const orderMul = sortOrder === "asc" ? 1 : -1;
+    teams.sort((a, b) => {
+      let cmp = 0;
+      switch (sortBy) {
+        case "capture":
+          cmp = (b.captureProgress ?? 0) - (a.captureProgress ?? 0);
+          if (cmp === 0) cmp = (b.zoneSteps ?? 0) - (a.zoneSteps ?? 0);
+          if (cmp === 0) cmp = (b.score ?? 0) - (a.score ?? 0);
+          if (cmp === 0) cmp = teamCorrectAnswers(b.id) - teamCorrectAnswers(a.id);
+          break;
+        case "score":
+          cmp = (b.score ?? 0) - (a.score ?? 0);
+          if (cmp === 0) cmp = (b.captureProgress ?? 0) - (a.captureProgress ?? 0);
+          if (cmp === 0) cmp = (b.zoneSteps ?? 0) - (a.zoneSteps ?? 0);
+          if (cmp === 0) cmp = teamCorrectAnswers(b.id) - teamCorrectAnswers(a.id);
+          break;
+        case "correct":
+          cmp = teamCorrectAnswers(b.id) - teamCorrectAnswers(a.id);
+          if (cmp === 0) cmp = (b.captureProgress ?? 0) - (a.captureProgress ?? 0);
+          if (cmp === 0) cmp = (b.zoneSteps ?? 0) - (a.zoneSteps ?? 0);
+          if (cmp === 0) cmp = (b.score ?? 0) - (a.score ?? 0);
+          break;
+      }
+      return cmp * orderMul;
+    });
+    return teams;
+  }, [activeTeams, sortBy, sortOrder, room]);
+
+  return (
+    <div className="compact-leaderboard">
+      <div className="compact-top">
+        <h4>ТУРНИРНАЯ ТАБЛИЦА</h4>
+        <div className="sort-selector small">
+          <button
+            className={sortBy === "capture" ? "active" : ""}
+            onClick={() => handleSortChange("capture")}
+          >
+            Захват {sortBy === "capture" && (sortOrder === "asc" ? "▲" : "▼")}
+          </button>
+          <button
+            className={sortBy === "score" ? "active" : ""}
+            onClick={() => handleSortChange("score")}
+          >
+            Очки {sortBy === "score" && (sortOrder === "asc" ? "▲" : "▼")}
+          </button>
+          <button
+            className={sortBy === "correct" ? "active" : ""}
+            onClick={() => handleSortChange("correct")}
+          >
+            Ответы {sortBy === "correct" && (sortOrder === "asc" ? "▲" : "▼")}
+          </button>
+        </div>
+      </div>
+      <div className="compact-list">
+        {sorted.map((team, idx) => (
+          <div
+            key={team.id}
+            className={`compact-row ${team.id === playerTeamId ? "my-team" : ""} ${idx === 0 ? "leader" : ""}`}
+          >
+            <span className="compact-rank">{idx + 1}</span>
+            <span className="compact-name" style={{ color: `hsl(${team.hue}, 70%, 65%)` }}>
+              {team.name}
+            </span>
+            <span className="compact-capture">{team.captureProgress}/{room.settings.zoneHoldSeconds}</span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }

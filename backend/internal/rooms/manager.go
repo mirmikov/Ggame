@@ -243,10 +243,6 @@ func (m *Manager) Start(roomID, playerID string) (*models.Room, error) {
 		return nil, errors.New("тур уже запущен")
 	}
 	participants := sortedParticipants(room)
-	if len(participants) == 0 {
-		m.mu.Unlock()
-		return nil, errors.New("нужен хотя бы один участник")
-	}
 
 	room.Units = map[string]*models.BattleUnit{}
 	room.Projectiles = []models.Projectile{}
@@ -261,49 +257,49 @@ func (m *Manager) Start(roomID, playerID string) (*models.Room, error) {
 	}
 
 	if room.GameMode == models.ModeFinal {
-		hasNex, hasOmni := false, false
 		teamLanes := map[models.TeamName]int{models.NexGen: 0, models.OmniSoft: 0}
 		for _, p := range participants {
 			if p.Team == "" {
-				m.mu.Unlock()
-				return nil, errors.New("в финале каждый участник должен выбрать сторону")
+				if teamLanes[models.NexGen] <= teamLanes[models.OmniSoft] {
+					p.Team = models.NexGen
+				} else {
+					p.Team = models.OmniSoft
+				}
 			}
-			hasNex = hasNex || p.Team == models.NexGen
-			hasOmni = hasOmni || p.Team == models.OmniSoft
 			p.QuestionID = m.nextQuestionID(p.Grade, "")
 			p.QualifierStatus, p.ZoneSteps, p.CaptureProgress = "", 0, 0
 			lane := teamLanes[p.Team]
 			teamLanes[p.Team]++
 			room.Units[p.ID] = unitFromPlayer(p, lane)
 		}
-		if !hasNex || !hasOmni {
-			m.mu.Unlock()
-			return nil, errors.New("в финале нужен минимум один участник с каждой стороны")
-		}
 		room.StoryMessage = "ФИНАЛ: две стороны усиливают бойцов теорией и кодом. Организатор транслирует арену."
 	} else {
-		missing := make([]string, 0)
-		for _, team := range sortedQualifierTeams(room) {
-			if qualifierTeamMemberCount(room, team.ID) == 0 {
-				missing = append(missing, team.Name)
+		activeTeams := map[string]bool{}
+		nextTeam := 0
+		teams := sortedQualifierTeams(room)
+		for _, p := range participants {
+			if room.QualifierTeams[p.QualifierTeamID] == nil {
+				if len(teams) > 0 {
+					p.QualifierTeamID = teams[nextTeam%len(teams)].ID
+					nextTeam++
+				}
+			}
+			if room.QualifierTeams[p.QualifierTeamID] != nil {
+				activeTeams[p.QualifierTeamID] = true
 			}
 		}
-		if len(missing) > 0 {
-			m.mu.Unlock()
-			return nil, fmt.Errorf("для запуска нужен хотя бы один участник во всех 8 командах; пустые: %s", strings.Join(missing, ", "))
-		}
-		room.QualifierSlots = models.QualifierTeamCount / 2
+		room.QualifierSlots = min(models.QualifierTeamCount/2, len(activeTeams))
 		for _, team := range room.QualifierTeams {
 			team.Score = 0
 			team.ZoneSteps = 0
 			team.CaptureProgress = 0
-			team.Status = "active"
+			if activeTeams[team.ID] {
+				team.Status = "active"
+			} else {
+				team.Status = "eliminated"
+			}
 		}
 		for _, p := range participants {
-			if room.QualifierTeams[p.QualifierTeamID] == nil {
-				m.mu.Unlock()
-				return nil, fmt.Errorf("участник %s не выбрал команду", p.Nickname)
-			}
 			p.Team = ""
 			p.QuestionID = m.nextQuestionID(p.Grade, "")
 			p.QualifierStatus = "active"

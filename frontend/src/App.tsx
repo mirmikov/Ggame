@@ -590,9 +590,6 @@ function Lobby({
   const membersFor = (teamId: string) =>
     participants.filter((p) => p.qualifierTeamId === teamId);
   const emptyTeams = qualifierTeams.filter((team) => membersFor(team.id).length === 0);
-  const qualifierReady =
-    room.gameMode !== "qualifier" ||
-    (qualifierTeams.length === 8 && emptyTeams.length === 0);
 
   if (me?.role === "organizer")
     return (
@@ -635,15 +632,16 @@ function Lobby({
                 </>
               )}
             </div>
-            {room.gameMode === "qualifier" && !qualifierReady && (
+            {room.gameMode === "qualifier" && emptyTeams.length > 0 && (
               <p className="lobby-warning">
-                Для запуска нужен хотя бы один участник в каждой из 8 команд.
-                Пустые: {emptyTeams.map((team) => team.name).join(", ") || "нет"}.
+                Тур можно запустить сейчас. Пустые команды будут пропущены:
+                {" "}
+                {emptyTeams.map((team) => team.name).join(", ") || "нет"}.
               </p>
             )}
             <button
               className="primary pulse"
-              disabled={!participants.length || !qualifierReady}
+              disabled={false}
               onClick={start}
             >
               ЗАПУСТИТЬ ТУР

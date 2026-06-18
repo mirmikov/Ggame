@@ -93,7 +93,7 @@ func TestQualifierTeamCapacity(t *testing.T) {
 	}
 }
 
-func TestQualifierRequiresAllEightTeams(t *testing.T) {
+func TestQualifierStartsWithPartiallyFilledTeams(t *testing.T) {
 	manager := NewManager()
 	room, organizer, err := manager.Create(qualifierInput())
 	if err != nil {
@@ -101,8 +101,35 @@ func TestQualifierRequiresAllEightTeams(t *testing.T) {
 	}
 	_, player, _ := manager.Join(room.UniqueServerID, "Only one", 10)
 	_, _ = manager.SelectQualifierTeam(room.UniqueServerID, player.ID, "T1")
-	if _, err = manager.Start(room.UniqueServerID, organizer.ID); err == nil {
-		t.Fatal("expected an error while some of the eight teams are empty")
+	started, err := manager.Start(room.UniqueServerID, organizer.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stopRoom(manager, room.UniqueServerID)
+	if started.QualifierSlots != 1 {
+		t.Fatalf("expected one final slot for one active team, got %d", started.QualifierSlots)
+	}
+	if started.QualifierTeams["T1"].Status != "active" {
+		t.Fatal("filled team must be active")
+	}
+	if started.QualifierTeams["T2"].Status != "eliminated" {
+		t.Fatal("empty team must be ignored")
+	}
+}
+
+func TestQualifierStartsWithoutParticipants(t *testing.T) {
+	manager := NewManager()
+	room, organizer, err := manager.Create(qualifierInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, err := manager.Start(room.UniqueServerID, organizer.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stopRoom(manager, room.UniqueServerID)
+	if started.QualifierSlots != 0 {
+		t.Fatalf("expected zero final slots without active teams, got %d", started.QualifierSlots)
 	}
 }
 
@@ -217,7 +244,7 @@ func TestCodeTaskMovesWholeQualifierTeam(t *testing.T) {
 	}
 }
 
-func TestFinalRequiresBothSides(t *testing.T) {
+func TestFinalStartsWithOneSide(t *testing.T) {
 	manager := NewManager()
 	in := qualifierInput()
 	in.GameMode = models.ModeFinal
@@ -231,16 +258,17 @@ func TestFinalRequiresBothSides(t *testing.T) {
 	if _, err = manager.SelectTeam(room.UniqueServerID, first.ID, models.NexGen); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = manager.Start(room.UniqueServerID, organizer.ID); err == nil {
-		t.Fatal("expected error while second side is empty")
-	}
-	if _, err = manager.SelectTeam(room.UniqueServerID, second.ID, models.OmniSoft); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = manager.Start(room.UniqueServerID, organizer.ID); err != nil {
+	started, err := manager.Start(room.UniqueServerID, organizer.ID)
+	if err != nil {
 		t.Fatal(err)
 	}
 	defer stopRoom(manager, room.UniqueServerID)
+	if started.Players[second.ID].Team == "" {
+		t.Fatal("unassigned final participant must be assigned automatically")
+	}
+	if len(started.Units) != 2 {
+		t.Fatalf("expected units for both participants, got %d", len(started.Units))
+	}
 }
 
 func TestQuestionsAndTasksAreExpanded(t *testing.T) {

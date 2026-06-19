@@ -140,14 +140,15 @@ type Question struct {
 }
 
 type TerminalTask struct {
-	ID              string   `json:"id"`
-	Title           string   `json:"title"`
-	Description     string   `json:"description"`
-	Language        string   `json:"language"`
-	StarterCode     string   `json:"starterCode"`
-	AcceptedAnswers []string `json:"-"`
-	Reward          int      `json:"reward"`
-	Difficulty      int      `json:"difficulty"`
+    ID              string   `json:"id"`
+    Title           string   `json:"title"`
+    Description     string   `json:"description"`
+    Language        string   `json:"language"`
+    StarterCode     string   `json:"starterCode"`
+    AcceptedAnswers []string `json:"-"`
+    Reward          int      `json:"reward"`
+    Difficulty      int      `json:"difficulty"`
+    Grade           int      `json:"grade"` // 9, 10 или 11
 }
 
 type Event struct {

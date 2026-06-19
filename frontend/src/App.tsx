@@ -444,17 +444,6 @@ function Start({
             }
           />
         </label>
-        <label>
-          КЛАСС
-          <select
-            value={session.grade}
-            onChange={(e) => setSession({ ...session, grade: +e.target.value })}
-          >
-            <option>9</option>
-            <option>10</option>
-            <option>11</option>
-          </select>
-        </label>
         <div className="actions">
           <button className="primary" disabled={!ready} onClick={onCreate}>
             Я ОРГАНИЗАТОР

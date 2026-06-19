@@ -102,6 +102,7 @@ export interface Room {
     roundDurationSeconds: number;
     towerHp: number;
     teamPlayerLimit: number;
+    qualifierTeamCount: number;
     zoneStepsToCenter: number;
     zonePushbackSteps: number;
     zoneHoldSeconds: number;

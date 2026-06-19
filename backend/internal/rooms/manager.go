@@ -84,10 +84,13 @@ func (m *Manager) Create(in CreateInput) (*models.Room, *models.Player, error) {
 		in.GameMode = models.ModeQualifier
 	}
 	if in.GameMode == models.ModeQualifier {
+		if in.Settings.QualifierTeamCount < models.MinQualifierTeams || in.Settings.QualifierTeamCount > models.MaxQualifierTeams {
+			in.Settings.QualifierTeamCount = models.MaxQualifierTeams
+		}
 		if in.Settings.TeamPlayerLimit < 1 || in.Settings.TeamPlayerLimit > 8 {
 			in.Settings.TeamPlayerLimit = 4
 		}
-		in.MaxPlayers = models.QualifierTeamCount * in.Settings.TeamPlayerLimit
+		in.MaxPlayers = in.Settings.QualifierTeamCount * in.Settings.TeamPlayerLimit
 	}
 	if in.MaxPlayers < 1 || in.MaxPlayers > 64 {
 		return nil, nil, errors.New("число участников должно быть от 1 до 64")
@@ -121,7 +124,7 @@ func (m *Manager) Create(in CreateInput) (*models.Room, *models.Player, error) {
 		GradeMode: in.GradeMode, GameMode: in.GameMode, Status: "waiting", OrganizerID: organizer.ID,
 		Players: map[string]*models.Player{organizer.ID: organizer}, Units: map[string]*models.BattleUnit{},
 		Projectiles: []models.Projectile{}, CreatedAt: time.Now(), Settings: in.Settings,
-		QualifierTeams: defaultQualifierTeams(),
+		QualifierTeams: defaultQualifierTeams(in.Settings.QualifierTeamCount),
 		Teams: map[models.TeamName]*models.Team{
 			models.NexGen:   {Name: models.NexGen, TowerHP: in.Settings.TowerHP, MaxTowerHP: in.Settings.TowerHP},
 			models.OmniSoft: {Name: models.OmniSoft, TowerHP: in.Settings.TowerHP, MaxTowerHP: in.Settings.TowerHP},
@@ -322,7 +325,7 @@ func (m *Manager) Start(roomID, playerID string) (*models.Room, error) {
 				activeTeams[p.QualifierTeamID] = true
 			}
 		}
-		room.QualifierSlots = min(models.QualifierTeamCount/2, len(activeTeams))
+		room.QualifierSlots = min(qualifierFinalSlots(room), len(activeTeams))
 		for _, team := range room.QualifierTeams {
 			team.Score = 0
 			team.ZoneSteps = 0
@@ -341,7 +344,7 @@ func (m *Manager) Start(roomID, playerID string) (*models.Room, error) {
 			p.CaptureProgress = 0
 			p.LatestBuff = "СТАРТ // ВНЕШНЕЕ КОЛЬЦО"
 		}
-		room.StoryMessage = "ОТБОРОЧНЫЙ ТУР: 8 команд движутся к центральной зоне. В финал проходят 4 сильнейшие команды."
+		room.StoryMessage = fmt.Sprintf("ОТБОРОЧНЫЙ ТУР: %d команд движутся к центральной зоне. В финал проходят %d сильнейшие команды.", len(room.QualifierTeams), room.QualifierSlots)
 	}
 
 	room.Status = "running"
@@ -901,7 +904,7 @@ func (m *Manager) tickFinalLocked(room *models.Room) {
 	}
 }
 
-func defaultQualifierTeams() map[string]*models.QualifierTeam {
+func defaultQualifierTeams(count int) map[string]*models.QualifierTeam {
 	names := []string{
 		"Байт Форс",
 		"Квант",
@@ -912,12 +915,26 @@ func defaultQualifierTeams() map[string]*models.QualifierTeam {
 		"Вектор",
 		"Кибер Волки",
 	}
-	teams := make(map[string]*models.QualifierTeam, len(names))
-	for i, name := range names {
+	if count < models.MinQualifierTeams || count > models.MaxQualifierTeams {
+		count = models.MaxQualifierTeams
+	}
+	teams := make(map[string]*models.QualifierTeam, count)
+	for i, name := range names[:count] {
 		id := fmt.Sprintf("T%d", i+1)
 		teams[id] = &models.QualifierTeam{ID: id, Name: name, Hue: (i * 43) % 360, Lane: i, Status: "waiting"}
 	}
 	return teams
+}
+
+func qualifierFinalSlots(room *models.Room) int {
+	teamCount := len(room.QualifierTeams)
+	if teamCount == 0 {
+		teamCount = room.Settings.QualifierTeamCount
+	}
+	if teamCount < models.MinQualifierTeams {
+		return 0
+	}
+	return max(1, (teamCount+1)/2)
 }
 
 func sortedQualifierTeams(room *models.Room) []*models.QualifierTeam {

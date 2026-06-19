@@ -548,6 +548,7 @@ function Create({
       roundDurationSeconds: 600,
       towerHp: 260,
       teamPlayerLimit: 4,
+      qualifierTeamCount: 8,
       zoneStepsToCenter: 8,
       zonePushbackSteps: 2,
       zoneHoldSeconds: 15,
@@ -576,27 +577,50 @@ function Create({
           </select>
         </label>
         {form.gameMode === "qualifier" ? (
-          <label>
-            УЧАСТНИКОВ В КАЖДОЙ ИЗ 8 КОМАНД
-            <select
-              value={form.settings.teamPlayerLimit}
-              onChange={(e) =>
-                setForm({
-                  ...form,
-                  settings: {
-                    ...form.settings,
-                    teamPlayerLimit: +e.target.value,
-                  },
-                })
-              }
-            >
-              {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
-                <option key={n} value={n}>
-                  {n} (всего мест: {n * 8})
-                </option>
-              ))}
-            </select>
-          </label>
+          <>
+            <label>
+              КОЛИЧЕСТВО КОМАНД
+              <select
+                value={form.settings.qualifierTeamCount}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    settings: {
+                      ...form.settings,
+                      qualifierTeamCount: +e.target.value,
+                    },
+                  })
+                }
+              >
+                {[2, 3, 4, 5, 6, 7, 8].map((n) => (
+                  <option key={n} value={n}>
+                    {n} команд
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              УЧАСТНИКОВ В КАЖДОЙ КОМАНДЕ
+              <select
+                value={form.settings.teamPlayerLimit}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    settings: {
+                      ...form.settings,
+                      teamPlayerLimit: +e.target.value,
+                    },
+                  })
+                }
+              >
+                {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+                  <option key={n} value={n}>
+                    {n} (всего мест: {n * form.settings.qualifierTeamCount})
+                  </option>
+                ))}
+              </select>
+            </label>
+          </>
         ) : (
           <label>
             МАКС. УЧАСТНИКОВ ФИНАЛА
@@ -714,9 +738,9 @@ function Create({
               />
             </label>
             <div className="qualifier-rule-note">
-              <b>Важно:</b> в отборе всегда участвуют ровно 8 команд. Каждый
-              участник выбирает команду после входа. Для запуска во всех восьми
-              командах должен быть хотя бы один человек; в финал проходят 4 команды.
+              <b>Важно:</b> организатор выбирает число команд перед созданием
+              лобби. Каждый участник выбирает команду после входа; пустые
+              команды будут пропущены при запуске.
             </div>
           </>
         )}
@@ -727,7 +751,8 @@ function Create({
               ...form,
               maxPlayers:
                 form.gameMode === "qualifier"
-                  ? form.settings.teamPlayerLimit * 8
+                  ? form.settings.teamPlayerLimit *
+                    form.settings.qualifierTeamCount
                   : form.maxPlayers,
               nickname: session.nickname,
               grade: session.grade,
@@ -800,6 +825,9 @@ function Lobby({
   const qualifierTeams = Object.values(room.qualifierTeams || {}).sort(
     (a, b) => a.lane - b.lane,
   );
+  const qualifierTeamCount = qualifierTeams.length || room.settings.qualifierTeamCount || 8;
+  const qualifierSlots =
+    room.qualifierSlots || Math.max(1, Math.ceil(qualifierTeamCount / 2));
   const membersFor = (teamId: string) =>
     participants.filter((p) => p.qualifierTeamId === teamId);
   const emptyTeams = qualifierTeams.filter((team) => membersFor(team.id).length === 0);
@@ -820,7 +848,7 @@ function Lobby({
             </p>
           </div>
           <div className="panel">
-            <h2>{room.gameMode === "qualifier" ? "ЗАХВАТ ЗОНЫ // 8 КОМАНД" : "ФИНАЛ"}</h2>
+            <h2>{room.gameMode === "qualifier" ? `ЗАХВАТ ЗОНЫ // ${qualifierTeamCount} КОМАНД` : "ФИНАЛ"}</h2>
             <div className="setting-list">
               <span>
                 ПОДКЛЮЧЕНО <b>{participants.length}/{room.maxPlayers}</b>
@@ -834,13 +862,13 @@ function Lobby({
               {room.gameMode === "qualifier" && (
                 <>
                   <span>
-                    КОМАНД ЗАПОЛНЕНО <b>{8 - emptyTeams.length}/8</b>
+                    КОМАНД ЗАПОЛНЕНО <b>{qualifierTeamCount - emptyTeams.length}/{qualifierTeamCount}</b>
                   </span>
                   <span>
                     МЕСТ В КОМАНДЕ <b>{room.settings.teamPlayerLimit}</b>
                   </span>
                   <span>
-                    В ФИНАЛ ПРОЙДЁТ <b>4 команды</b>
+                    В ФИНАЛ ПРОЙДЁТ <b>{qualifierSlots} команд</b>
                   </span>
                 </>
               )}
@@ -864,7 +892,7 @@ function Lobby({
             </button>
           </div>
           <div className="panel participant-board team-roster-board">
-            <h3>{room.gameMode === "qualifier" ? "СОСТАВЫ 8 КОМАНД" : "ПОДКЛЮЧИВШИЕСЯ УЧАСТНИКИ"}</h3>
+            <h3>{room.gameMode === "qualifier" ? `СОСТАВЫ ${qualifierTeamCount} КОМАНД` : "ПОДКЛЮЧИВШИЕСЯ УЧАСТНИКИ"}</h3>
             {room.gameMode === "qualifier" ? (
               <div className="organizer-team-grid">
                 {qualifierTeams.map((team) => {
@@ -916,10 +944,10 @@ function Lobby({
       <div className="participant-lobby panel">
         <div className="ready-icon">✓</div>
         <h2>ВЫ ПОДКЛЮЧЕНЫ</h2>
-        <p>Выберите команду. Организатор запустит тур, когда будут представлены все 8 команд.</p>
+        <p>Выберите команду. Организатор запустит тур, когда участники распределятся по командам.</p>
         {room.gameMode === "qualifier" ? (
           <div className="qualifier-team-select">
-            <h3>ВЫБЕРИТЕ ОДНУ ИЗ 8 КОМАНД</h3>
+            <h3>ВЫБЕРИТЕ ОДНУ ИЗ {qualifierTeamCount} КОМАНД</h3>
             <div className="qualifier-team-grid">
               {qualifierTeams.map((team) => {
                 const members = membersFor(team.id);
@@ -1071,6 +1099,9 @@ function QualifierArena({ room, finish }: { room: Room; finish: () => void }) {
   const teams = Object.values(room.qualifierTeams || {}).sort(
     (a, b) => a.lane - b.lane,
   );
+  const qualifierTeamCount = teams.length || room.settings.qualifierTeamCount || 8;
+  const qualifierSlots =
+    room.qualifierSlots || Math.max(1, Math.ceil(qualifierTeamCount / 2));
   const membersFor = (teamId: string) =>
     participants.filter((player) => player.qualifierTeamId === teamId);
   const holder = room.zoneHolderTeamId
@@ -1091,7 +1122,7 @@ function QualifierArena({ room, finish }: { room: Room; finish: () => void }) {
   return (
     <section className="game-screen organizer-arena">
       <div className="projector-banner">
-        <b>ОТБОРОЧНЫЙ ТУР // 8 КОМАНД // ЗАХВАТ ЗОНЫ</b>
+        <b>ОТБОРОЧНЫЙ ТУР // {qualifierTeamCount} КОМАНД // ЗАХВАТ ЗОНЫ</b>
         <span>{room.uniqueServerId}</span>
         <button className="danger-action compact" onClick={finish}>
           ЗАВЕРШИТЬ
@@ -1100,7 +1131,7 @@ function QualifierArena({ room, finish }: { room: Room; finish: () => void }) {
       <div className="zone-top">
         <div className="zone-summary">
           <small>В ФИНАЛЕ</small>
-          <b>{qualified.size} / 4</b>
+          <b>{qualified.size} / {qualifierSlots}</b>
         </div>
         <div className="timer">
           {formatTime(remaining)}
@@ -1186,7 +1217,7 @@ function QualifierArena({ room, finish }: { room: Room; finish: () => void }) {
           <strong>{room.lastEvent || "Синхронизация..."}</strong>
         </div>
         <div className="panel live-roster">
-          <h3>ПОЛОЖЕНИЕ 8 КОМАНД</h3>
+          <h3>ПОЛОЖЕНИЕ {qualifierTeamCount} КОМАНД</h3>
           {[...teams]
             .sort(
               (a, b) =>
@@ -1627,12 +1658,16 @@ function Results({ room, restart }: { room: Room; restart: () => void }) {
   );
   const membersFor = (teamId: string) =>
     players.filter((player) => player.qualifierTeamId === teamId);
+  const qualifierTeamCount =
+    qualifierTeams.length || room.settings.qualifierTeamCount || 8;
+  const qualifierSlots =
+    room.qualifierSlots || Math.max(1, Math.ceil(qualifierTeamCount / 2));
 
   if (room.gameMode === "qualifier")
     return (
       <Screen title="ОТБОРОЧНЫЙ ТУР // РЕЗУЛЬТАТЫ">
         <div className="winner blue-text">
-          <small>В ФИНАЛ ПРОШЛИ</small>4 КОМАНДЫ
+          <small>В ФИНАЛ ПРОШЛИ</small>{qualifierSlots} КОМАНДЫ
         </div>
         <p className="result-story">{room.storyMessage}</p>
         <div className="panel leaderboard qualifier-results">

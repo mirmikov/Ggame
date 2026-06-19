@@ -14,6 +14,8 @@ const (
 	RoleParticipant    = "participant"
 	ModeQualifier      = "qualifier"
 	ModeFinal          = "final"
+	MinQualifierTeams  = 2
+	MaxQualifierTeams  = 8
 	QualifierTeamCount = 8
 )
 
@@ -97,6 +99,7 @@ type Settings struct {
 	RoundDurationSeconds int `json:"roundDurationSeconds"`
 	TowerHP              int `json:"towerHp"`
 	TeamPlayerLimit      int `json:"teamPlayerLimit"`
+	QualifierTeamCount   int `json:"qualifierTeamCount"`
 	ZoneStepsToCenter    int `json:"zoneStepsToCenter"`
 	ZonePushbackSteps    int `json:"zonePushbackSteps"`
 	ZoneHoldSeconds      int `json:"zoneHoldSeconds"`

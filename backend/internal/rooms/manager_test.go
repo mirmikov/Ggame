@@ -42,7 +42,7 @@ func stopRoom(manager *Manager, roomID string) {
 	manager.mu.Unlock()
 }
 
-func TestQualifierCreatesExactlyEightTeams(t *testing.T) {
+func TestQualifierCreatesDefaultEightTeams(t *testing.T) {
 	manager := NewManager()
 	room, _, err := manager.Create(qualifierInput())
 	if err != nil {
@@ -53,6 +53,26 @@ func TestQualifierCreatesExactlyEightTeams(t *testing.T) {
 	}
 	if room.MaxPlayers != models.QualifierTeamCount*room.Settings.TeamPlayerLimit {
 		t.Fatalf("max players must be calculated from team capacity, got %d", room.MaxPlayers)
+	}
+}
+
+func TestQualifierCanUseFewerTeams(t *testing.T) {
+	manager := NewManager()
+	in := qualifierInput()
+	in.Settings.QualifierTeamCount = 4
+	in.Settings.TeamPlayerLimit = 3
+	room, _, err := manager.Create(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(room.QualifierTeams) != 4 {
+		t.Fatalf("expected 4 teams, got %d", len(room.QualifierTeams))
+	}
+	if room.MaxPlayers != 12 {
+		t.Fatalf("expected 12 max players, got %d", room.MaxPlayers)
+	}
+	if room.QualifierTeams["T5"] != nil {
+		t.Fatal("unexpected fifth qualifier team")
 	}
 }
 

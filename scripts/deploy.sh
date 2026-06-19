@@ -3,12 +3,19 @@ set -euo pipefail
 
 domain="${1:-${SITE_ADDRESS:-}}"
 
-if [[ -f .env ]]; then
-  set -a
-  # shellcheck disable=SC1091
-  source .env
-  set +a
-fi
+load_env() {
+  [[ -f .env ]] || return 0
+  local key value
+  while IFS='=' read -r key value; do
+    case "$key" in
+      SITE_ADDRESS|HTTP_PORT|HTTPS_PORT|POSTGRES_DB|POSTGRES_USER|POSTGRES_PASSWORD)
+        export "$key=$value"
+        ;;
+    esac
+  done < .env
+}
+
+load_env
 
 write_env() {
   local site_address="$1"
@@ -30,10 +37,7 @@ elif [[ ! -f .env ]]; then
   write_env "localhost"
 fi
 
-set -a
-# shellcheck disable=SC1091
-source .env
-set +a
+load_env
 
 git fetch --prune
 git pull --ff-only

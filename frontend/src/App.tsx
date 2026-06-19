@@ -23,6 +23,28 @@ function readSession(): Session {
   }
 }
 
+function roomIdFromPath() {
+  const match = window.location.pathname.match(/^\/(CYB-[A-Z0-9]+)\/?$/i);
+  return match ? match[1].toUpperCase() : "";
+}
+
+function roomPath(roomId: string) {
+  return `/${roomId.toUpperCase()}`;
+}
+
+function showRoomInAddress(roomId: string) {
+  const next = roomPath(roomId);
+  if (window.location.pathname !== next) {
+    window.history.pushState({}, "", next);
+  }
+}
+
+function showHomeInAddress() {
+  if (window.location.pathname !== "/") {
+    window.history.pushState({}, "", "/");
+  }
+}
+
 export default function App() {
   const [session, setSession] = useState<Session>(readSession);
   const [view, setView] = useState<View>("start");
@@ -44,13 +66,38 @@ export default function App() {
       .me()
       .then(({ user }) => {
         setUser(user);
-        updateSession({
-          ...readSession(),
+        const saved = readSession();
+        const nextSession = {
+          ...saved,
           nickname: user.displayName,
           grade: user.grade,
-        });
+        };
+        updateSession(nextSession);
+        const urlRoomId = roomIdFromPath();
+        if (urlRoomId) {
+          return api.getRoom(urlRoomId).then((room) => {
+            updateSession({ ...nextSession, roomId: room.uniqueServerId });
+            if (!nextSession.playerId || !room.players[nextSession.playerId]) {
+              setView("join");
+              return;
+            }
+            setRoom(room);
+            setView(
+              room.status === "waiting"
+                ? "lobby"
+                : room.status === "finished"
+                  ? "results"
+                  : "game",
+            );
+          });
+        }
+        return undefined;
       })
-      .catch(() => undefined)
+      .catch((e) => {
+        if (roomIdFromPath()) {
+          setError(e instanceof Error ? e.message : "Комната не найдена");
+        }
+      })
       .finally(() => setAuthChecked(true));
   }, []);
 
@@ -120,6 +167,7 @@ export default function App() {
                 await api.logout();
                 setUser(null);
                 setRoom(null);
+                showHomeInAddress();
                 setView("start");
               })
             }
@@ -140,13 +188,15 @@ export default function App() {
         {authChecked && !user && (
           <AuthGate
             onAuth={(nextUser) => {
+              const urlRoomId = roomIdFromPath();
               setUser(nextUser);
               updateSession({
                 playerId: "",
                 nickname: nextUser.displayName,
                 grade: nextUser.grade,
+                roomId: urlRoomId || undefined,
               });
-              setView("start");
+              setView(urlRoomId ? "join" : "start");
             }}
             run={run}
           />
@@ -175,6 +225,7 @@ export default function App() {
                   role: "organizer",
                 });
                 setRoom(result.room);
+                showRoomInAddress(result.room.uniqueServerId);
                 setView("lobby");
               })
             }
@@ -197,6 +248,7 @@ export default function App() {
                   role: "participant",
                 });
                 setRoom(result.room);
+                showRoomInAddress(result.room.uniqueServerId);
                 setView("lobby");
               })
             }
@@ -233,6 +285,12 @@ export default function App() {
                 setRoom(await api.start(room.uniqueServerId, session.playerId)),
               )
             }
+            finish={() =>
+              run(async () => {
+                setRoom(await api.finish(room.uniqueServerId, session.playerId));
+                setView("results");
+              })
+            }
           />
         )}
         {view === "game" && room && (
@@ -241,6 +299,12 @@ export default function App() {
             playerId={session.playerId}
             questions={questions}
             tasks={tasks}
+            finish={() =>
+              run(async () => {
+                setRoom(await api.finish(room.uniqueServerId, session.playerId));
+                setView("results");
+              })
+            }
             submitTask={(task, value) =>
               run(async () => {
                 const result = await api.submitTask(
@@ -280,6 +344,7 @@ export default function App() {
             room={room}
             restart={() => {
               setRoom(null);
+              showHomeInAddress();
               setView("start");
             }}
           />
@@ -690,7 +755,7 @@ function Join({
   join: (id: string) => void;
   back: () => void;
 }) {
-  const [id, setId] = useState("");
+  const [id, setId] = useState(roomIdFromPath());
   return (
     <Screen title="УЧАСТНИК // ВХОД ПО КОДУ" back={back}>
       <div className="panel join-card">
@@ -719,12 +784,14 @@ function Lobby({
   choose,
   chooseQualifier,
   start,
+  finish,
 }: {
   room: Room;
   playerId: string;
   choose: (t: TeamName) => void;
   chooseQualifier: (teamId: string) => void;
   start: () => void;
+  finish: () => void;
 }) {
   const me = room.players[playerId];
   const participants = Object.values(room.players).filter(
@@ -791,6 +858,9 @@ function Lobby({
               onClick={start}
             >
               ЗАПУСТИТЬ ТУР
+            </button>
+            <button className="danger-action" onClick={finish}>
+              ЗАВЕРШИТЬ ТУР
             </button>
           </div>
           <div className="panel participant-board team-roster-board">
@@ -936,6 +1006,7 @@ function TournamentGame({
   tasks,
   answer,
   submitTask,
+  finish,
 }: {
   room: Room;
   playerId: string;
@@ -943,10 +1014,11 @@ function TournamentGame({
   tasks: TerminalTask[];
   answer: (q: string, a: number) => void;
   submitTask: (task: string, value: string) => void;
+  finish: () => void;
 }) {
   const me = room.players[playerId];
   return me?.role === "organizer" ? (
-    <OrganizerArena room={room} />
+    <OrganizerArena room={room} finish={finish} />
   ) : (
     <ParticipantConsole
       room={room}
@@ -971,11 +1043,11 @@ function routePoint(lane: number, position: number, laneCount: number) {
   return { x: position, y };
 }
 
-function OrganizerArena({ room }: { room: Room }) {
+function OrganizerArena({ room, finish }: { room: Room; finish: () => void }) {
   return room.gameMode === "qualifier" ? (
-    <QualifierArena room={room} />
+    <QualifierArena room={room} finish={finish} />
   ) : (
-    <FinalArena room={room} />
+    <FinalArena room={room} finish={finish} />
   );
 }
 
@@ -992,7 +1064,7 @@ function qualifierStatusLabel(status: string) {
   return "ДВИЖЕТСЯ";
 }
 
-function QualifierArena({ room }: { room: Room }) {
+function QualifierArena({ room, finish }: { room: Room; finish: () => void }) {
   const participants = Object.values(room.players).filter(
     (p) => p.role === "participant" && !p.isBot,
   );
@@ -1021,6 +1093,9 @@ function QualifierArena({ room }: { room: Room }) {
       <div className="projector-banner">
         <b>ОТБОРОЧНЫЙ ТУР // 8 КОМАНД // ЗАХВАТ ЗОНЫ</b>
         <span>{room.uniqueServerId}</span>
+        <button className="danger-action compact" onClick={finish}>
+          ЗАВЕРШИТЬ
+        </button>
       </div>
       <div className="zone-top">
         <div className="zone-summary">
@@ -1136,7 +1211,7 @@ function QualifierArena({ room }: { room: Room }) {
   );
 }
 
-function FinalArena({ room }: { room: Room }) {
+function FinalArena({ room, finish }: { room: Room; finish: () => void }) {
   const units = Object.values(room.units);
   const laneCount = Math.max(1, ...units.map((u) => u.lane + 1));
   const remaining = Math.max(
@@ -1151,6 +1226,9 @@ function FinalArena({ room }: { room: Room }) {
       <div className="projector-banner">
         <b>ФИНАЛ // КОМАНДА ПРОТИВ КОМАНДЫ</b>
         <span>{room.uniqueServerId}</span>
+        <button className="danger-action compact" onClick={finish}>
+          ЗАВЕРШИТЬ
+        </button>
       </div>
       <div className="game-top">
         <Tower team={room.teams.NexGen} label="NEXGEN TOWER" />

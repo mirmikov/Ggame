@@ -355,6 +355,53 @@ func (m *Manager) Start(roomID, playerID string) (*models.Room, error) {
 	return snapshot, nil
 }
 
+func (m *Manager) Finish(roomID, playerID string) (*models.Room, error) {
+	m.mu.Lock()
+	room, ok := m.rooms[strings.ToUpper(roomID)]
+	if !ok {
+		m.mu.Unlock()
+		return nil, errors.New("лобби не найдено")
+	}
+	organizer := room.Players[playerID]
+	if organizer == nil || organizer.Role != models.RoleOrganizer || !organizer.IsHost {
+		m.mu.Unlock()
+		return nil, errors.New("только организатор может завершить тур")
+	}
+	if room.Status == "finished" {
+		snapshot := cloneRoom(room)
+		m.mu.Unlock()
+		return snapshot, nil
+	}
+	room.Status = "finished"
+	room.EndsAt = time.Now().Unix()
+	if room.GameMode == models.ModeQualifier {
+		room.Winner = models.NexGen
+		room.StoryMessage = "Организатор завершил отборочный тур досрочно."
+	} else {
+		nex, omni := room.Teams[models.NexGen], room.Teams[models.OmniSoft]
+		if nex != nil && omni != nil {
+			if nex.TowerHP == omni.TowerHP {
+				if nex.Score >= omni.Score {
+					room.Winner = models.NexGen
+				} else {
+					room.Winner = models.OmniSoft
+				}
+			} else if nex.TowerHP > omni.TowerHP {
+				room.Winner = models.NexGen
+			} else {
+				room.Winner = models.OmniSoft
+			}
+		}
+		room.StoryMessage = fmt.Sprintf("Организатор завершил финал досрочно. Победитель — %s.", room.Winner)
+	}
+	room.LastEvent = "TOURNAMENT // STOPPED BY ORGANIZER"
+	snapshot := cloneRoom(room)
+	m.mu.Unlock()
+	m.persist(snapshot, "room_finished_by_organizer", map[string]any{"playerId": playerID})
+	m.Broadcast(roomID, "game_finished", snapshot)
+	return snapshot, nil
+}
+
 func unitFromPlayer(p *models.Player, lane int) *models.BattleUnit {
 	start := 8.0
 	if p.Team == models.OmniSoft {

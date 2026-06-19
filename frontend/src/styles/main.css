@@ -20,4 +20,5 @@
 /* Auth and persistent tournament database */
 .logout-button{margin-left:0;padding:8px 12px;font-size:9px}.auth-panel{margin-top:24px;width:min(520px,100%);padding:22px;display:grid;gap:16px;text-align:left}.auth-tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px}.auth-tabs button.active{border-color:var(--blue);color:var(--blue);background:#0e2933}
 .access-panel{grid-template-columns:1fr}
+.danger-action{margin-top:10px;border-color:var(--pink);background:#351126;color:#ffd8ea;font-weight:700}.danger-action:hover:not(:disabled){border-color:var(--pink);color:white;box-shadow:0 0 20px #ff3aa833}.danger-action.compact{margin-top:0;padding:8px 12px;font-size:9px}
 @media(max-width:600px){.logout-button{padding:7px 9px;font-size:8px}header{gap:9px}.auth-panel{padding:16px}.auth-tabs{grid-template-columns:1fr}}

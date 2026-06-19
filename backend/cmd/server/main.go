@@ -178,6 +178,19 @@ func (a *api) roomAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, 200, room)
+	case "finish":
+		var in struct {
+			PlayerID string `json:"playerId"`
+		}
+		if !decode(w, r, &in) {
+			return
+		}
+		room, err := a.rooms.Finish(id, in.PlayerID)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, 200, room)
 	case "answer":
 		var in struct {
 			PlayerID   string `json:"playerId"`

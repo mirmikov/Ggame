@@ -44,6 +44,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify({}),
     }),
+  getRoom: (id: string) => request<Room>(`/api/rooms/${id}`),
   createRoom: (data: unknown) =>
     request<{ room: Room; player: { id: string } }>("/api/rooms", {
       method: "POST",
@@ -66,6 +67,11 @@ export const api = {
     }),
   start: (id: string, playerId: string) =>
     request<Room>(`/api/rooms/${id}/start`, {
+      method: "POST",
+      body: JSON.stringify({ playerId }),
+    }),
+  finish: (id: string, playerId: string) =>
+    request<Room>(`/api/rooms/${id}/finish`, {
       method: "POST",
       body: JSON.stringify({ playerId }),
     }),

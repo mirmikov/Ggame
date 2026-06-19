@@ -8,6 +8,9 @@ if [[ -n "$domain" ]]; then
 SITE_ADDRESS=${domain}
 HTTP_PORT=80
 HTTPS_PORT=443
+POSTGRES_DB=${POSTGRES_DB:-ggame}
+POSTGRES_USER=${POSTGRES_USER:-ggame}
+POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-$(openssl rand -hex 24)}
 EOF
 elif [[ ! -f .env ]]; then
   cp .env.example .env

@@ -2,6 +2,13 @@ export type TeamName = "NexGen" | "OmniSoft" | "";
 export type Role = "organizer" | "participant";
 export type GameMode = "qualifier" | "final";
 
+export interface User {
+  id: string;
+  email: string;
+  displayName: string;
+  grade: number;
+}
+
 export interface Player {
   id: string;
   nickname: string;

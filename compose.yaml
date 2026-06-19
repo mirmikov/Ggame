@@ -1,11 +1,31 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:-ggame}"
+      POSTGRES_USER: "${POSTGRES_USER:-ggame}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-ggame_password}"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ggame} -d ${POSTGRES_DB:-ggame}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
   prometheus-battle:
     build:
       context: .
       dockerfile: Dockerfile
     image: prometheus-battle:local
+    depends_on:
+      postgres:
+        condition: service_healthy
     expose:
       - "8080"
+    environment:
+      DATABASE_URL: "postgres://${POSTGRES_USER:-ggame}:${POSTGRES_PASSWORD:-ggame_password}@postgres:5432/${POSTGRES_DB:-ggame}?sslmode=disable"
     restart: unless-stopped
 
   caddy:
@@ -24,5 +44,6 @@ services:
     restart: unless-stopped
 
 volumes:
+  postgres_data:
   caddy_data:
   caddy_config:

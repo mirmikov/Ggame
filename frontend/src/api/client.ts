@@ -1,4 +1,4 @@
-import type { Question, Room, TeamName, TerminalTask } from "../types";
+import type { Question, Room, TeamName, TerminalTask, User } from "../types";
 
 const DEFAULT_DEV_API = `${window.location.protocol}//${window.location.hostname}:8080`;
 const API =
@@ -10,6 +10,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   try {
     response = await fetch(`${API}${path}`, {
       ...options,
+      credentials: "include",
       headers: { "Content-Type": "application/json", ...options?.headers },
     });
   } catch {
@@ -22,6 +23,27 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  me: () => request<{ user: User }>("/api/auth/me"),
+  register: (data: {
+    email: string;
+    displayName: string;
+    password: string;
+    grade: number;
+  }) =>
+    request<{ user: User }>("/api/auth/register", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  login: (email: string, password: string) =>
+    request<{ user: User }>("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }),
+  logout: () =>
+    request<{ status: string }>("/api/auth/logout", {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
   createRoom: (data: unknown) =>
     request<{ room: Room; player: { id: string } }>("/api/rooms", {
       method: "POST",

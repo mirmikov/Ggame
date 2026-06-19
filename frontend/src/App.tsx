@@ -9,9 +9,10 @@ import type {
   TeamName,
   TerminalTask,
   Unit,
+  User,
 } from "./types";
 
-type View = "start" | "create" | "join" | "lobby" | "game" | "results";
+type View = "auth" | "start" | "create" | "join" | "lobby" | "game" | "results";
 
 function readSession(): Session {
   try {
@@ -30,11 +31,28 @@ export default function App() {
   const [tasks, setTasks] = useState<TerminalTask[]>([]);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [user, setUser] = useState<User | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
 
   const updateSession = (next: Session) => {
     setSession(next);
     localStorage.setItem("prometheus-session", JSON.stringify(next));
   };
+
+  useEffect(() => {
+    api
+      .me()
+      .then(({ user }) => {
+        setUser(user);
+        updateSession({
+          ...readSession(),
+          nickname: user.displayName,
+          grade: user.grade,
+        });
+      })
+      .catch(() => undefined)
+      .finally(() => setAuthChecked(true));
+  }, []);
 
   useEffect(() => {
     api
@@ -94,10 +112,47 @@ export default function App() {
           <small>QUALIFIER + FINAL // ONLINE</small>
         </div>
         <span className="status-dot">SYSTEM READY</span>
+        {user && (
+          <button
+            className="logout-button"
+            onClick={() =>
+              run(async () => {
+                await api.logout();
+                setUser(null);
+                setRoom(null);
+                setView("start");
+              })
+            }
+          >
+            ВЫЙТИ
+          </button>
+        )}
       </header>
       {error && <Toast text={error} error close={() => setError("")} />}
       {notice && <Toast text={notice} close={() => setNotice("")} />}
       <main>
+        {!authChecked && (
+          <section className="hero grid-bg">
+            <div className="eyebrow">AUTH // DATABASE</div>
+            <h1>ЗАГРУЗКА</h1>
+          </section>
+        )}
+        {authChecked && !user && (
+          <AuthGate
+            onAuth={(nextUser) => {
+              setUser(nextUser);
+              updateSession({
+                playerId: "",
+                nickname: nextUser.displayName,
+                grade: nextUser.grade,
+              });
+              setView("start");
+            }}
+            run={run}
+          />
+        )}
+        {authChecked && user && (
+          <>
         {view === "start" && (
           <Start
             session={session}
@@ -229,6 +284,8 @@ export default function App() {
             }}
           />
         )}
+          </>
+        )}
       </main>
     </div>
   );
@@ -248,6 +305,106 @@ function Toast({
       {text}
       <button onClick={close}>×</button>
     </div>
+  );
+}
+
+function AuthGate({
+  onAuth,
+  run,
+}: {
+  onAuth: (user: User) => void;
+  run: (action: () => Promise<void>) => void;
+}) {
+  const [mode, setMode] = useState<"login" | "register">("register");
+  const [form, setForm] = useState({
+    email: "",
+    displayName: "",
+    password: "",
+    grade: 9,
+  });
+  const isRegister = mode === "register";
+  return (
+    <section className="hero grid-bg">
+      <div className="eyebrow">ACCOUNT // TOURNAMENT DATABASE</div>
+      <h1>
+        ВХОД В СИСТЕМУ
+        <br />
+        <span>ТУРНИРЫ СОХРАНЯЮТСЯ.</span>
+      </h1>
+      <div className="panel auth-panel">
+        <div className="auth-tabs">
+          <button
+            className={isRegister ? "active" : ""}
+            onClick={() => setMode("register")}
+          >
+            РЕГИСТРАЦИЯ
+          </button>
+          <button
+            className={!isRegister ? "active" : ""}
+            onClick={() => setMode("login")}
+          >
+            ВХОД
+          </button>
+        </div>
+        <label>
+          EMAIL
+          <input
+            type="email"
+            value={form.email}
+            placeholder="name@example.com"
+            onChange={(e) => setForm({ ...form, email: e.target.value })}
+          />
+        </label>
+        {isRegister && (
+          <>
+            <label>
+              ИМЯ / ПОЗЫВНОЙ
+              <input
+                value={form.displayName}
+                maxLength={24}
+                placeholder="Например, Алекс"
+                onChange={(e) =>
+                  setForm({ ...form, displayName: e.target.value })
+                }
+              />
+            </label>
+            <label>
+              КЛАСС
+              <select
+                value={form.grade}
+                onChange={(e) => setForm({ ...form, grade: +e.target.value })}
+              >
+                <option>9</option>
+                <option>10</option>
+                <option>11</option>
+              </select>
+            </label>
+          </>
+        )}
+        <label>
+          ПАРОЛЬ
+          <input
+            type="password"
+            value={form.password}
+            minLength={6}
+            onChange={(e) => setForm({ ...form, password: e.target.value })}
+          />
+        </label>
+        <button
+          className="primary wide"
+          onClick={() =>
+            run(async () => {
+              const result = isRegister
+                ? await api.register(form)
+                : await api.login(form.email, form.password);
+              onAuth(result.user);
+            })
+          }
+        >
+          {isRegister ? "СОЗДАТЬ АККАУНТ" : "ВОЙТИ"}
+        </button>
+      </div>
+    </section>
   );
 }
 

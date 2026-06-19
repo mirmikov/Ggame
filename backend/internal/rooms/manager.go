@@ -22,6 +22,13 @@ type Manager struct {
 	writeMu sync.Mutex
 	rooms   map[string]*models.Room
 	clients map[string]map[*websocket.Conn]bool
+	store   RoomStore
+}
+
+type RoomStore interface {
+	LoadRooms() ([]*models.Room, error)
+	SaveRoom(*models.Room) error
+	AppendEvent(roomID, eventType string, payload map[string]any) error
 }
 
 type CreateInput struct {
@@ -36,6 +43,29 @@ type CreateInput struct {
 
 func NewManager() *Manager {
 	return &Manager{rooms: map[string]*models.Room{}, clients: map[string]map[*websocket.Conn]bool{}}
+}
+
+func NewManagerWithStore(store RoomStore) (*Manager, error) {
+	manager := &Manager{rooms: map[string]*models.Room{}, clients: map[string]map[*websocket.Conn]bool{}, store: store}
+	if store == nil {
+		return manager, nil
+	}
+	rooms, err := store.LoadRooms()
+	if err != nil {
+		return nil, err
+	}
+	for _, room := range rooms {
+		if room == nil || room.UniqueServerID == "" {
+			continue
+		}
+		id := strings.ToUpper(room.UniqueServerID)
+		manager.rooms[id] = room
+		manager.clients[id] = map[*websocket.Conn]bool{}
+		if room.Status == "running" {
+			go manager.battleLoop(id)
+		}
+	}
+	return manager, nil
 }
 
 func basePlayer(nickname string, grade int, role string, host bool) *models.Player {
@@ -108,6 +138,7 @@ func (m *Manager) Create(in CreateInput) (*models.Room, *models.Player, error) {
 	snapshot := cloneRoom(room)
 	player := clonePlayer(organizer)
 	m.mu.Unlock()
+	m.persist(snapshot, "room_created", map[string]any{"organizerId": organizer.ID, "serverName": snapshot.ServerName, "gameMode": snapshot.GameMode})
 	return snapshot, player, nil
 }
 
@@ -135,6 +166,7 @@ func (m *Manager) Join(roomID, nickname string, grade int) (*models.Room, *model
 	snapshot := cloneRoom(room)
 	playerCopy := clonePlayer(player)
 	m.mu.Unlock()
+	m.persist(snapshot, "player_joined", map[string]any{"playerId": player.ID, "nickname": player.Nickname})
 	m.Broadcast(roomID, "room_state", snapshot)
 	return snapshot, playerCopy, nil
 }
@@ -187,6 +219,7 @@ func (m *Manager) SelectQualifierTeam(roomID, playerID, teamID string) (*models.
 	room.LastEvent = fmt.Sprintf("%s вступил в команду %s", player.Nickname, team.Name)
 	snapshot := cloneRoom(room)
 	m.mu.Unlock()
+	m.persist(snapshot, "qualifier_team_selected", map[string]any{"playerId": playerID, "teamId": teamID})
 	m.Broadcast(roomID, "room_state", snapshot)
 	return snapshot, nil
 }
@@ -222,6 +255,7 @@ func (m *Manager) SelectTeam(roomID, playerID string, team models.TeamName) (*mo
 	room.LastEvent = fmt.Sprintf("%s выбрал команду %s", player.Nickname, team)
 	snapshot := cloneRoom(room)
 	m.mu.Unlock()
+	m.persist(snapshot, "team_selected", map[string]any{"playerId": playerID, "team": team})
 	m.Broadcast(roomID, "room_state", snapshot)
 	return snapshot, nil
 }
@@ -315,6 +349,7 @@ func (m *Manager) Start(roomID, playerID string) (*models.Room, error) {
 	room.LastEvent = "Тур запущен"
 	snapshot := cloneRoom(room)
 	m.mu.Unlock()
+	m.persist(snapshot, "room_started", map[string]any{"playerId": playerID})
 	m.Broadcast(roomID, "game_started", snapshot)
 	go m.battleLoop(strings.ToUpper(roomID))
 	return snapshot, nil
@@ -397,6 +432,7 @@ func (m *Manager) Answer(roomID, playerID, questionID string, answer int) (bool,
 	p.QuestionID = m.nextQuestionID(p.Grade, questionID)
 	snapshot := cloneRoom(room)
 	m.mu.Unlock()
+	m.persist(snapshot, "question_answered", map[string]any{"playerId": playerID, "questionId": questionID, "correct": correct})
 	m.Broadcast(roomID, "player_answered", map[string]any{"playerId": playerID, "correct": correct, "room": snapshot})
 	return correct, q.Explanation, snapshot, nil
 }
@@ -485,6 +521,7 @@ func (m *Manager) SubmitTask(roomID, playerID, taskID, answer string) (bool, *mo
 	}
 	snapshot := cloneRoom(room)
 	m.mu.Unlock()
+	m.persist(snapshot, "task_submitted", map[string]any{"playerId": playerID, "taskId": taskID, "correct": correct})
 	m.Broadcast(roomID, "player_answered", map[string]any{"playerId": playerID, "correct": correct, "room": snapshot})
 	return correct, snapshot, nil
 }
@@ -577,6 +614,7 @@ func (m *Manager) battleLoop(roomID string) {
 		finished := room.Status == "finished"
 		snapshot := cloneRoom(room)
 		m.mu.Unlock()
+		m.persist(snapshot, "room_tick", map[string]any{"status": snapshot.Status, "lastEvent": snapshot.LastEvent})
 		event := "battle_tick"
 		if finished {
 			event = "game_finished"
@@ -586,6 +624,16 @@ func (m *Manager) battleLoop(roomID string) {
 			return
 		}
 	}
+}
+
+func (m *Manager) persist(room *models.Room, eventType string, payload map[string]any) {
+	if m.store == nil || room == nil {
+		return
+	}
+	if err := m.store.SaveRoom(room); err != nil {
+		return
+	}
+	_ = m.store.AppendEvent(room.UniqueServerID, eventType, payload)
 }
 
 func (m *Manager) tickQualifierLocked(room *models.Room) {

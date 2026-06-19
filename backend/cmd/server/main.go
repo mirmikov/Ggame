@@ -8,19 +8,35 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"ggame/backend/internal/models"
 	"ggame/backend/internal/rooms"
+	"ggame/backend/internal/storage"
 	gamews "ggame/backend/internal/ws"
 )
 
-type api struct{ rooms *rooms.Manager }
+type api struct {
+	rooms *rooms.Manager
+	db    *storage.Store
+}
 
 func main() {
-	manager := rooms.NewManager()
-	a := &api{rooms: manager}
+	db, err := storage.New(os.Getenv("DATABASE_URL"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	manager, err := rooms.NewManagerWithStore(db)
+	if err != nil {
+		log.Fatal(err)
+	}
+	a := &api{rooms: manager, db: db}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, map[string]string{"status": "ok"}) })
+	mux.HandleFunc("/api/auth/register", a.register)
+	mux.HandleFunc("/api/auth/login", a.login)
+	mux.HandleFunc("/api/auth/logout", a.logout)
+	mux.HandleFunc("/api/auth/me", a.me)
 	mux.HandleFunc("/api/questions", a.questions)
 	mux.HandleFunc("/api/tasks", a.tasks)
 	mux.HandleFunc("/api/rooms", a.createRoom)
@@ -41,9 +57,19 @@ func (a *api) createRoom(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", 405)
 		return
 	}
+	user, ok := a.requireUser(w, r)
+	if !ok {
+		return
+	}
 	var in rooms.CreateInput
 	if !decode(w, r, &in) {
 		return
+	}
+	if strings.TrimSpace(in.Nickname) == "" {
+		in.Nickname = user.DisplayName
+	}
+	if in.Grade == 0 {
+		in.Grade = user.Grade
 	}
 	room, player, err := a.rooms.Create(in)
 	if err != nil {
@@ -75,12 +101,22 @@ func (a *api) roomAction(w http.ResponseWriter, r *http.Request) {
 	}
 	switch parts[1] {
 	case "join":
+		user, ok := a.requireUser(w, r)
+		if !ok {
+			return
+		}
 		var in struct {
 			Nickname string `json:"nickname"`
 			Grade    int    `json:"grade"`
 		}
 		if !decode(w, r, &in) {
 			return
+		}
+		if strings.TrimSpace(in.Nickname) == "" {
+			in.Nickname = user.DisplayName
+		}
+		if in.Grade == 0 {
+			in.Grade = user.Grade
 		}
 		room, player, err := a.rooms.Join(id, in.Nickname, in.Grade)
 		if err != nil {
@@ -183,6 +219,113 @@ func (a *api) questions(w http.ResponseWriter, r *http.Request) {
 }
 func (a *api) tasks(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, a.rooms.Tasks()) }
 
+func (a *api) register(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	var in struct {
+		Email       string `json:"email"`
+		DisplayName string `json:"displayName"`
+		Password    string `json:"password"`
+		Grade       int    `json:"grade"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	user, err := a.db.CreateUser(in.Email, in.DisplayName, in.Password, in.Grade)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if !a.startSession(w, user.ID) {
+		return
+	}
+	writeJSON(w, 201, map[string]any{"user": a.db.PublicUser(user)})
+}
+
+func (a *api) login(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	var in struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	user, err := a.db.Authenticate(in.Email, in.Password)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if !a.startSession(w, user.ID) {
+		return
+	}
+	writeJSON(w, 200, map[string]any{"user": a.db.PublicUser(user)})
+}
+
+func (a *api) logout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	if cookie, err := r.Cookie("ggame_session"); err == nil {
+		_ = a.db.DeleteSession(cookie.Value)
+	}
+	http.SetCookie(w, &http.Cookie{Name: "ggame_session", Value: "", Path: "/", MaxAge: -1, SameSite: http.SameSiteLaxMode})
+	writeJSON(w, 200, map[string]string{"status": "ok"})
+}
+
+func (a *api) me(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	user, ok := a.userFromRequest(r)
+	if !ok {
+		writeJSON(w, 401, map[string]string{"error": "требуется вход"})
+		return
+	}
+	writeJSON(w, 200, map[string]any{"user": a.db.PublicUser(user)})
+}
+
+func (a *api) startSession(w http.ResponseWriter, userID string) bool {
+	token, err := a.db.CreateSession(userID)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": "не удалось создать сессию"})
+		return false
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     "ggame_session",
+		Value:    token,
+		Path:     "/",
+		MaxAge:   int((30 * 24 * time.Hour).Seconds()),
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+	return true
+}
+
+func (a *api) requireUser(w http.ResponseWriter, r *http.Request) (*storage.User, bool) {
+	user, ok := a.userFromRequest(r)
+	if !ok {
+		writeJSON(w, 401, map[string]string{"error": "сначала войдите или зарегистрируйтесь"})
+		return nil, false
+	}
+	return user, true
+}
+
+func (a *api) userFromRequest(r *http.Request) (*storage.User, bool) {
+	cookie, err := r.Cookie("ggame_session")
+	if err != nil || cookie.Value == "" {
+		return nil, false
+	}
+	return a.db.UserBySession(cookie.Value)
+}
+
 func decode(w http.ResponseWriter, r *http.Request, target any) bool {
 	if err := json.NewDecoder(r.Body).Decode(target); err != nil {
 		writeJSON(w, 400, map[string]string{"error": "invalid JSON"})
@@ -200,7 +343,12 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 }
 func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			origin = "*"
+		}
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		if r.Method == http.MethodOptions {

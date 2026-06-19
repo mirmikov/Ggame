@@ -148,6 +148,7 @@ type TerminalTask struct {
 	AcceptedAnswers []string `json:"-"`
 	Reward          int      `json:"reward"`
 	Difficulty      int      `json:"difficulty"`
+	Grade           int      `json:"grade"` // 9, 10 или 11
 }
 
 type Event struct {

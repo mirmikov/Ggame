@@ -14,7 +14,7 @@ import (
 func TestInitialRoomState(t *testing.T) {
 	manager := rooms.NewManager()
 	room, _, err := manager.Create(rooms.CreateInput{
-		ServerName: "WS test", MaxPlayers: 4, GradeMode: "mixed", GameMode: models.ModeQualifier,
+		ServerName: "WS test", MaxPlayers: 4, GradeMode: "9", GameMode: models.ModeQualifier,
 		Nickname: "Organizer", Grade: 11,
 		Settings: models.Settings{RoundDurationSeconds: 60, TowerHP: 200, TeamPlayerLimit: 2, ZoneStepsToCenter: 8, ZonePushbackSteps: 2, ZoneHoldSeconds: 15},
 	})

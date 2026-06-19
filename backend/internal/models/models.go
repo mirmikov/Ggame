@@ -100,6 +100,7 @@ type Settings struct {
 	TowerHP              int `json:"towerHp"`
 	TeamPlayerLimit      int `json:"teamPlayerLimit"`
 	QualifierTeamCount   int `json:"qualifierTeamCount"`
+	QuestionLimit        int `json:"questionLimit"`
 	ZoneStepsToCenter    int `json:"zoneStepsToCenter"`
 	ZonePushbackSteps    int `json:"zonePushbackSteps"`
 	ZoneHoldSeconds      int `json:"zoneHoldSeconds"`

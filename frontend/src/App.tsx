@@ -102,11 +102,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const grade = Number(room?.gradeMode) || session.grade;
     api
-      .questions(session.grade)
+      .questions(grade)
       .then(setQuestions)
       .catch(() => undefined);
-  }, [session.grade]);
+  }, [session.grade, room?.gradeMode]);
 
   useEffect(() => {
     api
@@ -542,13 +543,14 @@ function Create({
   const [form, setForm] = useState({
     serverName: "Турнир по информатике",
     maxPlayers: 16,
-    gradeMode: "mixed",
+    gradeMode: String(session.grade || 9),
     gameMode: "qualifier",
     settings: {
       roundDurationSeconds: 600,
       towerHp: 260,
       teamPlayerLimit: 4,
       qualifierTeamCount: 8,
+      questionLimit: 12,
       zoneStepsToCenter: 8,
       zonePushbackSteps: 2,
       zoneHoldSeconds: 15,
@@ -635,7 +637,7 @@ function Create({
           </label>
         )}
         <label>
-          КЛАССЫ
+          КЛАСС
           <select
             value={form.gradeMode}
             onChange={(e) => setForm({ ...form, gradeMode: e.target.value })}
@@ -643,7 +645,27 @@ function Create({
             <option value="9">9 класс</option>
             <option value="10">10 класс</option>
             <option value="11">11 класс</option>
-            <option value="mixed">9–11 классы</option>
+          </select>
+        </label>
+        <label>
+          КОЛИЧЕСТВО ВОПРОСОВ
+          <select
+            value={form.settings.questionLimit}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                settings: {
+                  ...form.settings,
+                  questionLimit: +e.target.value,
+                },
+              })
+            }
+          >
+            {[5, 8, 10, 12, 15, 20, 25, 30].map((n) => (
+              <option key={n} value={n}>
+                {n} вопросов на участника
+              </option>
+            ))}
           </select>
         </label>
         <label>
@@ -854,7 +876,10 @@ function Lobby({
                 ПОДКЛЮЧЕНО <b>{participants.length}/{room.maxPlayers}</b>
               </span>
               <span>
-                КЛАССЫ <b>{room.gradeMode}</b>
+                КЛАСС <b>{room.gradeMode}</b>
+              </span>
+              <span>
+                ВОПРОСОВ <b>{room.settings.questionLimit}</b>
               </span>
               <span>
                 ВРЕМЯ <b>{Math.floor(room.settings.roundDurationSeconds / 60)} мин</b>
@@ -1396,6 +1421,10 @@ function ParticipantConsole({
     (room.endsAt || 0) - Math.floor(Date.now() / 1000),
   );
   const locked = (player?.lockedUntil || 0) > Date.now() / 1000;
+  const answeredQuestions =
+    (player?.correctAnswers || 0) + (player?.wrongAnswers || 0);
+  const questionLimit = room.settings.questionLimit || 0;
+  const theoryDone = questionLimit > 0 && answeredQuestions >= questionLimit;
   const qualifierDone =
     room.gameMode === "qualifier" &&
     (qualifierTeam?.status === "qualified" ||
@@ -1447,6 +1476,14 @@ function ParticipantConsole({
             value={`${qualifierTeam?.captureProgress || 0}/${room.settings.zoneHoldSeconds}`}
           />
           <Stat name="ВЕРНО" value={player?.correctAnswers} />
+          <Stat
+            name="ВОПРОСЫ"
+            value={
+              questionLimit
+                ? `${answeredQuestions}/${questionLimit}`
+                : answeredQuestions
+            }
+          />
           <Stat name="КОД" value={player?.solvedTasks?.length || 0} />
           <Stat name="ЛИЧНЫЙ SCORE" value={player?.score} />
           <Stat name="КОМАНДНЫЙ SCORE" value={qualifierTeam?.score || 0} />
@@ -1495,7 +1532,14 @@ function ParticipantConsole({
             </div>
             {tab === "theory" ? (
               <div className="theory-workspace">
-                {locked ? (
+                {theoryDone ? (
+                  <div className="locked">
+                    <b>ВОПРОСЫ ЗАВЕРШЕНЫ</b>
+                    <span>
+                      Вы ответили на {answeredQuestions}/{questionLimit} теоретических вопросов. Можно продолжать решать кодовые задания.
+                    </span>
+                  </div>
+                ) : locked ? (
                   <div className="locked">
                     <b>МОДУЛЬ ЗАБЛОКИРОВАН</b>
                     <span>

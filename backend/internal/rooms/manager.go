@@ -7,6 +7,7 @@ import (
 	"math"
 	"math/rand"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -83,6 +84,13 @@ func (m *Manager) Create(in CreateInput) (*models.Room, *models.Player, error) {
 	if in.GameMode != models.ModeQualifier && in.GameMode != models.ModeFinal {
 		in.GameMode = models.ModeQualifier
 	}
+	if gradeMode, err := strconv.Atoi(in.GradeMode); err != nil || gradeMode < 9 || gradeMode > 11 {
+		if in.Grade >= 9 && in.Grade <= 11 {
+			in.GradeMode = strconv.Itoa(in.Grade)
+		} else {
+			in.GradeMode = "9"
+		}
+	}
 	if in.GameMode == models.ModeQualifier {
 		if in.Settings.QualifierTeamCount < models.MinQualifierTeams || in.Settings.QualifierTeamCount > models.MaxQualifierTeams {
 			in.Settings.QualifierTeamCount = models.MaxQualifierTeams
@@ -107,6 +115,9 @@ func (m *Manager) Create(in CreateInput) (*models.Room, *models.Player, error) {
 	if in.Settings.RoundDurationSeconds < 30 || in.Settings.RoundDurationSeconds > 3600 {
 		in.Settings.RoundDurationSeconds = 600
 	}
+	if in.Settings.QuestionLimit < 1 || in.Settings.QuestionLimit > 100 {
+		in.Settings.QuestionLimit = 12
+	}
 	if in.Settings.ZoneStepsToCenter < 4 || in.Settings.ZoneStepsToCenter > 20 {
 		in.Settings.ZoneStepsToCenter = 8
 	}
@@ -118,6 +129,7 @@ func (m *Manager) Create(in CreateInput) (*models.Room, *models.Player, error) {
 	}
 
 	roomID := randomID("CYB-", 5)
+	in.Grade, _ = strconv.Atoi(in.GradeMode)
 	organizer := basePlayer(in.Nickname, in.Grade, models.RoleOrganizer, true)
 	room := &models.Room{
 		UniqueServerID: roomID, ServerName: strings.TrimSpace(in.ServerName), MaxPlayers: in.MaxPlayers,
@@ -162,6 +174,9 @@ func (m *Manager) Join(roomID, nickname string, grade int) (*models.Room, *model
 	if participantCount(room) >= room.MaxPlayers {
 		m.mu.Unlock()
 		return nil, nil, errors.New("в лобби нет свободных мест")
+	}
+	if roomGrade, err := strconv.Atoi(room.GradeMode); err == nil {
+		grade = roomGrade
 	}
 	player := basePlayer(nickname, grade, models.RoleParticipant, false)
 	room.Players[player.ID] = player
@@ -303,7 +318,7 @@ func (m *Manager) Start(roomID, playerID string) (*models.Room, error) {
 					p.Team = models.OmniSoft
 				}
 			}
-			p.QuestionID = m.nextQuestionID(p.Grade, "")
+			p.QuestionID = m.nextQuestionID(roomQuestionGrade(room), "")
 			p.QualifierStatus, p.ZoneSteps, p.CaptureProgress = "", 0, 0
 			lane := teamLanes[p.Team]
 			teamLanes[p.Team]++
@@ -338,7 +353,7 @@ func (m *Manager) Start(roomID, playerID string) (*models.Room, error) {
 		}
 		for _, p := range participants {
 			p.Team = ""
-			p.QuestionID = m.nextQuestionID(p.Grade, "")
+			p.QuestionID = m.nextQuestionID(roomQuestionGrade(room), "")
 			p.QualifierStatus = "active"
 			p.ZoneSteps = 0
 			p.CaptureProgress = 0
@@ -441,6 +456,10 @@ func (m *Manager) Answer(roomID, playerID, questionID string, answer int) (bool,
 		m.mu.Unlock()
 		return false, "", nil, errors.New("теоретический модуль временно заблокирован")
 	}
+	if questionLimitReached(room, p) {
+		m.mu.Unlock()
+		return false, "", nil, errors.New("лимит теоретических вопросов исчерпан")
+	}
 	if p.QuestionID != questionID {
 		m.mu.Unlock()
 		return false, "", nil, errors.New("вопрос уже изменился")
@@ -479,7 +498,11 @@ func (m *Manager) Answer(roomID, playerID, questionID string, answer int) (bool,
 			p.WrongStreak = 0
 		}
 	}
-	p.QuestionID = m.nextQuestionID(p.Grade, questionID)
+	if questionLimitReached(room, p) {
+		p.QuestionID = ""
+	} else {
+		p.QuestionID = m.nextQuestionID(roomQuestionGrade(room), questionID)
+	}
 	snapshot := cloneRoom(room)
 	m.mu.Unlock()
 	m.persist(snapshot, "question_answered", map[string]any{"playerId": playerID, "questionId": questionID, "correct": correct})
@@ -644,6 +667,22 @@ func (m *Manager) nextQuestionID(grade int, previous string) string {
 		}
 	}
 	return items[0].ID
+}
+
+func roomQuestionGrade(room *models.Room) int {
+	if room != nil {
+		if grade, err := strconv.Atoi(room.GradeMode); err == nil && grade >= 9 && grade <= 11 {
+			return grade
+		}
+	}
+	return 9
+}
+
+func questionLimitReached(room *models.Room, player *models.Player) bool {
+	if room == nil || player == nil || room.Settings.QuestionLimit <= 0 {
+		return false
+	}
+	return player.CorrectAnswers+player.WrongAnswers >= room.Settings.QuestionLimit
 }
 
 func (m *Manager) battleLoop(roomID string) {

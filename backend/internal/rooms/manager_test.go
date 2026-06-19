@@ -9,7 +9,7 @@ import (
 
 func qualifierInput() CreateInput {
 	return CreateInput{
-		ServerName: "Qualifier test", MaxPlayers: 16, GradeMode: "mixed", GameMode: models.ModeQualifier,
+		ServerName: "Qualifier test", MaxPlayers: 16, GradeMode: "9", GameMode: models.ModeQualifier,
 		Nickname: "Organizer", Grade: 11,
 		Settings: models.Settings{
 			RoundDurationSeconds: 60, TowerHP: 200, TeamPlayerLimit: 2,

@@ -1,6 +1,7 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: ghcr.io/cloudnative-pg/postgresql:16.4
+    user: "0:0"
     environment:
       POSTGRES_DB: "${POSTGRES_DB:-ggame}"
       POSTGRES_USER: "${POSTGRES_USER:-ggame}"

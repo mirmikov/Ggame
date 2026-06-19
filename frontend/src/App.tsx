@@ -394,7 +394,7 @@ function AuthGate({
       <h1>
         ВХОД В СИСТЕМУ
         <br />
-        <span>ТУРНИРЫ СОХРАНЯЮТСЯ.</span>
+        <span>Prometheus</span>
       </h1>
       <div className="panel auth-panel">
         <div className="auth-tabs">

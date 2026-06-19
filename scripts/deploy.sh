@@ -3,6 +3,13 @@ set -euo pipefail
 
 domain="${1:-${SITE_ADDRESS:-}}"
 
+if [[ -f .env ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source .env
+  set +a
+fi
+
 write_env() {
   local site_address="$1"
   local postgres_password
@@ -23,8 +30,19 @@ elif [[ ! -f .env ]]; then
   write_env "localhost"
 fi
 
+set -a
+# shellcheck disable=SC1091
+source .env
+set +a
+
 git fetch --prune
 git pull --ff-only
+
+docker compose up -d postgres
+
+postgres_password_sql="${POSTGRES_PASSWORD//\'/\'\'}"
+docker compose exec -T postgres psql -U "${POSTGRES_USER:-ggame}" -d "${POSTGRES_DB:-ggame}" \
+  -c "ALTER USER \"${POSTGRES_USER:-ggame}\" WITH PASSWORD '${postgres_password_sql}';"
 
 docker compose up -d --build --force-recreate
 docker compose ps
